@@ -23,14 +23,17 @@ export default function Home() {
   const shown = useMemo(() => records.filter((record) => (filter === 'All' || record.type === filter) && `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase())), [filter, query]);
   const active = records.find((record) => record.id === selected) ?? records[0];
 
-  return <main>
-    <header className="topbar">
-      <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">NB</span><span>Personal Health</span></a>
-      <nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#records">GP records</a><a href="#sources">Sources</a></nav>
-      <span className="privacy"><span className="privacyDot" />Private household system</span>
-    </header>
+  return <>
+    <a className="skipLink" href="#records">Skip to health records</a>
+    <header className="siteHeader"><div className="headerInner">
+      <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">PH</span><span>Personal Health Data</span></a>
+      <span className="privacy"><span className="privacyDot" />Private service</span>
+    </div></header>
+    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
+    <main>
+    <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
-      <div><p className="eyebrow">Your data, independent of the device</p><h1>Your health record,<br />with receipts.</h1><p className="lede">Every clinical fact stays connected to its source, confidence and review history.</p></div>
+      <div><p className="eyebrow">Personal Health Data</p><h1>Your health record,<br />with receipts</h1><p className="lede">Review health information with its original source, confidence score and history clearly attached.</p></div>
       <div className="freshness" aria-label="Pipeline status"><span className="pulse" /><div><strong>GP capture complete</strong><span>24 source pages verified</span></div></div>
     </section>
     <section className="metricGrid" id="overview" aria-label="GP record summary">
@@ -63,6 +66,7 @@ export default function Home() {
       <article className="panel terminology"><p className="eyebrow">Terminology</p><h2>Suggestions, never silent guesses.</h2><div className="bigStat">234</div><p>Coded-entry descriptions preserved. SystmOnline exposed no explicit Read, CTV3, SNOMED or ICD identifiers.</p><span className="familyTag">0 verified codes</span><span className="familyTag">0 hidden assumptions</span></article>
       <article className="panel geek"><p className="eyebrow">Trust model</p><h2>Four visible layers</h2><ol className="layerList"><li><span>1</span>Source evidence</li><li><span>2</span>Verified clinical record</li><li><span>3</span>Proposed interpretation</li><li><span>4</span>Experimental analysis</li></ol></article>
     </section>
-    <footer>Personal Health Data · Person-centred · Source-preserving · FHIR-ready</footer>
-  </main>;
+    </main>
+    <footer className="siteFooter"><div><strong>Personal Health Data</strong><span>Person-centred · Source-preserving · FHIR-ready</span><p>Uses accessible patterns inspired by the GOV.UK Design System. This is not an official government service.</p></div></footer>
+  </>;
 }
