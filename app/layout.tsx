@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://health.newland-brown.com'),
   title: 'Personal Health Data',
   description: 'A person-centred view of health, clinical records and genomic evidence.',
   openGraph: {
