@@ -1,8 +1,6 @@
 services:
   gateway:
-    build:
-      context: .
-      dockerfile: gateway/Dockerfile
+    image: ghcr.io/devnulluk/personal-health-portal-gateway:latest
     restart: unless-stopped
     depends_on:
       portal:
@@ -14,16 +12,12 @@ services:
     networks: [health-portal]
 
   portal:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/devnulluk/personal-health-portal-web:latest
     restart: unless-stopped
     networks: [health-portal]
 
   clinical-api:
-    build:
-      context: ./clinical-api
-      dockerfile: Dockerfile
+    image: ghcr.io/devnulluk/personal-health-portal-api:latest
     restart: unless-stopped
     environment:
       CLINICAL_DATABASE: /data/records.sqlite3
