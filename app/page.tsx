@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type RecordItem = { id: number; date: string; type: string; title: string; summary: string; source: string; confidence: number; review?: string; fhir: string };
 
@@ -33,7 +33,7 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(1);
   const [inspector, setInspector] = useState<'source' | 'fhir'>('source');
-  const shown = useMemo(() => records.filter((record) => (filter === 'All' || record.type === filter) && `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase())), [filter, query]);
+  const shown = records.filter((record) => (filter === 'All' || record.type === filter) && `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase()));
   const active = records.find((record) => record.id === selected) ?? records[0];
 
   useEffect(() => {
