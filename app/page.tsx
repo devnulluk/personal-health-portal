@@ -1,10 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type RecordItem = { id: number; date: string; type: string; title: string; summary: string; source: string; confidence: number; review?: string; fhir: string };
 
-const records: RecordItem[] = [
+const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
   { id: 2, date: '13 Aug 2026', type: 'Measurements', title: 'Example blood pressure', summary: 'Representative measurement retained with its original context.', source: 'SystmOnline · Patient Record', confidence: 100, fhir: 'Observation · final · UKCore-Observation' },
   { id: 3, date: '04 Jul 2026', type: 'Medications', title: 'Example repeat medicine', summary: 'Medication description preserved; dm+d coding not yet supplied by source.', source: 'SystmOnline · Summary', confidence: 100, review: 'Code unavailable', fhir: 'MedicationStatement · unknown · UKCore-MedicationStatement' },
@@ -15,13 +15,63 @@ const records: RecordItem[] = [
 
 const filters = ['All', 'Problems', 'Medications', 'Tests', 'Measurements', 'Vaccinations', 'Letters'];
 
+function classifyType(entryType: string): string {
+  const value = entryType.toLowerCase();
+  if (value.includes('medication') || value.includes('repeat')) return 'Medications';
+  if (value.includes('vaccin') || value.includes('immun')) return 'Vaccinations';
+  if (value.includes('blood pressure') || value.includes('measurement')) return 'Measurements';
+  if (value.includes('test') || value.includes('result') || value.includes('laboratory')) return 'Tests';
+  if (value.includes('letter') || value.includes('document') || value.includes('attachment')) return 'Letters';
+  return 'Problems';
+}
+
 export default function Home() {
+  const [records, setRecords] = useState<RecordItem[]>(representativeRecords);
+  const [summary, setSummary] = useState({ current_events: 433, review_items: 30, source_captures: 24 });
+  const [usingRealData, setUsingRealData] = useState(false);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(1);
   const [inspector, setInspector] = useState<'source' | 'fhir'>('source');
   const shown = useMemo(() => records.filter((record) => (filter === 'All' || record.type === filter) && `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase())), [filter, query]);
   const active = records.find((record) => record.id === selected) ?? records[0];
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [summaryResponse, eventsResponse] = await Promise.all([
+          fetch('/api/clinical/summary'),
+          fetch('/api/clinical/events?limit=1000'),
+        ]);
+        if (!summaryResponse.ok || !eventsResponse.ok) return;
+        const liveSummary = await summaryResponse.json();
+        const eventPayload = await eventsResponse.json();
+        const liveRecords: RecordItem[] = eventPayload.items.map((item: {
+          id: number; event_date: string; entry_type: string; source_text: string;
+          source_file: string; organisation: string; parse_confidence: number; parse_notes: string;
+        }) => ({
+          id: item.id,
+          date: item.event_date || 'Unknown date',
+          type: classifyType(item.entry_type),
+          title: item.entry_type || 'Clinical record',
+          summary: item.source_text,
+          source: [item.organisation, item.source_file].filter(Boolean).join(' · '),
+          confidence: Math.round(item.parse_confidence * 100),
+          review: item.parse_confidence < 1 || item.parse_notes !== '[]' ? 'Check source and parsing notes' : undefined,
+          fhir: `${item.entry_type || 'Clinical event'} · source-preserving representation`,
+        }));
+        if (liveRecords.length) {
+          setSummary(liveSummary);
+          setRecords(liveRecords);
+          setSelected(liveRecords[0].id);
+          setUsingRealData(true);
+        }
+      } catch {
+        // The hosted design prototype deliberately falls back to representative data.
+      }
+    };
+    void load();
+  }, []);
 
   return <>
     <a className="skipLink" href="#records">Skip to health records</a>
@@ -34,15 +84,15 @@ export default function Home() {
     <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
       <div><p className="eyebrow">Personal Health Data</p><h1>Your health record,<br />with receipts</h1><p className="lede">Review health information with its original source, confidence score and history clearly attached.</p></div>
-      <div className="freshness" aria-label="Pipeline status"><span className="pulse" /><div><strong>GP capture complete</strong><span>24 source pages verified</span></div></div>
+      <div className="freshness" aria-label="Pipeline status"><span className="pulse" /><div><strong>{usingRealData ? 'Private clinical database connected' : 'GP capture complete'}</strong><span>{usingRealData ? `${summary.source_captures} source captures retained` : '24 source pages verified'}</span></div></div>
     </section>
     <section className="metricGrid" id="overview" aria-label="GP record summary">
-      <article className="metric"><span>Current events</span><strong>433</strong><small>Corrected v0.4 dataset</small></article>
-      <article className="metric"><span>Needs attention</span><strong>30</strong><small>Explicit review flags</small></article>
-      <article className="metric"><span>Source integrity</span><strong>24 / 24</strong><small>Checksums verified</small></article>
+      <article className="metric"><span>Current events</span><strong>{summary.current_events}</strong><small>{usingRealData ? 'Live private dataset' : 'Corrected v0.4 dataset'}</small></article>
+      <article className="metric"><span>Needs attention</span><strong>{summary.review_items}</strong><small>Explicit review flags</small></article>
+      <article className="metric"><span>Source captures</span><strong>{summary.source_captures}</strong><small>Checksummed evidence</small></article>
     </section>
     <section className="workspace panel" id="records" aria-label="GP record review workspace">
-      <div className="workspaceHeader"><div><p className="eyebrow">Clinical record review</p><h2>GP timeline</h2><p>Representative records · real project totals · no private clinical content in this preview</p></div><span className="smallPill goodPill">Source preserved</span></div>
+      <div className="workspaceHeader"><div><p className="eyebrow">Clinical record review</p><h2>GP timeline</h2><p>{usingRealData ? 'Private clinical records · retained on Mobius · source evidence preserved' : 'Representative records · real project totals · no private clinical content in this preview'}</p></div><span className="smallPill goodPill">{usingRealData ? 'Live private data' : 'Source preserved'}</span></div>
       <div className="recordTools">
         <label className="search"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a record…" /></label>
         <div className="filterRow" aria-label="Filter record types">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div>

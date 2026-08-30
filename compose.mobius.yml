@@ -1,0 +1,46 @@
+services:
+  gateway:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on:
+      portal:
+        condition: service_started
+      clinical-api:
+        condition: service_healthy
+    ports:
+      - "31020:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [health-portal]
+
+  portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [health-portal]
+
+  clinical-api:
+    build:
+      context: ./clinical-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      CLINICAL_DATABASE: /data/records.sqlite3
+      CLINICAL_IMPORT_TOKEN: ${CLINICAL_IMPORT_TOKEN:?Set a long random import token}
+    volumes:
+      - clinical-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [health-portal]
+
+volumes:
+  clinical-data:
+    name: personal-health-clinical-data
+
+networks:
+  health-portal:
+    name: personal-health-portal

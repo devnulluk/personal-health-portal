@@ -1,0 +1,9 @@
+.git
+.openai
+.next
+dist
+node_modules
+*.tar.gz
+*.sqlite3
+private
+.env*
