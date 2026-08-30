@@ -33,7 +33,10 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(1);
   const [inspector, setInspector] = useState<'source' | 'fhir'>('source');
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(100);
   const shown = records.filter((record) => (filter === 'All' || record.type === filter) && `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase()));
+  const visibleRecords = shown.slice(0, visibleLimit);
   const active = records.find((record) => record.id === selected) ?? records[0];
 
   useEffect(() => {
@@ -73,6 +76,15 @@ export default function Home() {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (!detailsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDetailsOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [detailsOpen]);
+
   return <>
     <a className="skipLink" href="#records">Skip to health records</a>
     <header className="siteHeader"><div className="headerInner">
@@ -94,14 +106,18 @@ export default function Home() {
     <section className="workspace panel" id="records" aria-label="GP record review workspace">
       <div className="workspaceHeader"><div><p className="eyebrow">Clinical record review</p><h2>GP timeline</h2><p>{usingRealData ? 'Private clinical records · retained on Mobius · source evidence preserved' : 'Representative records · real project totals · no private clinical content in this preview'}</p></div><span className="smallPill goodPill">{usingRealData ? 'Live private data' : 'Source preserved'}</span></div>
       <div className="recordTools">
-        <label className="search"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a record…" /></label>
-        <div className="filterRow" aria-label="Filter record types">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div>
+        <label className="search"><span>Search</span><input value={query} onChange={(event) => { setQuery(event.target.value); setVisibleLimit(100); }} placeholder="Find a record…" /></label>
+        <div className="filterRow" aria-label="Filter record types">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => { setFilter(item); setVisibleLimit(100); }}>{item}</button>)}</div>
       </div>
       <div className="reviewLayout">
         <div className="timeline" aria-live="polite">
-          {shown.length ? shown.map((record) => <button key={record.id} className={`recordRow ${selected === record.id ? 'selected' : ''}`} onClick={() => setSelected(record.id)}><span className="recordDate">{record.date}</span><span className={`typeDot type-${record.type.toLowerCase()}`} /><span className="recordCopy"><strong>{record.title}</strong><small>{record.type} · {record.source}</small></span><span className={`confidence ${record.confidence === 100 ? 'verified' : 'review'}`}>{record.confidence}%</span></button>) : <div className="emptyState"><strong>No matching records</strong><span>Try another filter or search phrase.</span></div>}
+          <div className="timelineSummary"><strong>{shown.length} records</strong><span>{shown.length > visibleRecords.length ? `Showing the first ${visibleRecords.length}` : 'All matching records shown'}</span></div>
+          {visibleRecords.length ? visibleRecords.map((record) => <button key={record.id} className={`recordRow ${selected === record.id ? 'selected' : ''}`} onClick={() => { setSelected(record.id); setDetailsOpen(true); }} aria-haspopup="dialog"><span className="recordDate">{record.date}</span><span className={`typeDot type-${record.type.toLowerCase()}`} /><span className="recordCopy"><strong>{record.title}</strong><small>{record.type} · {record.source}</small></span><span className={`confidence ${record.confidence === 100 ? 'verified' : 'review'}`}>{record.confidence}%</span></button>) : <div className="emptyState"><strong>No matching records</strong><span>Try another filter or search phrase.</span></div>}
+          {visibleRecords.length < shown.length && <div className="loadMore"><button onClick={() => setVisibleLimit((limit) => limit + 100)}>Show 100 more</button></div>}
         </div>
-        <aside className="inspector" aria-label="Selected record inspector">
+        {detailsOpen && <button className="detailsBackdrop" aria-label="Close record details" onClick={() => setDetailsOpen(false)} />}
+        <aside className={`inspector ${detailsOpen ? 'detailsOpen' : ''}`} aria-label="Selected record inspector" aria-modal={detailsOpen ? 'true' : undefined} role={detailsOpen ? 'dialog' : undefined}>
+          <button className="detailsClose" onClick={() => setDetailsOpen(false)} aria-label="Close record details"><span aria-hidden="true">←</span> Back to records</button>
           <div className="inspectorTop"><span className="recordType">{active.type}</span><span className={`confidence ${active.confidence === 100 ? 'verified' : 'review'}`}>{active.confidence}% confidence</span></div>
           <h3>{active.title}</h3><p className="inspectorDate">{active.date}</p>
           {active.review && <div className="reviewBanner"><strong>Review needed</strong><span>{active.review}</span></div>}
