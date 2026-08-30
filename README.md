@@ -12,6 +12,8 @@ A calm, person-centred interface for health measurements, GP records, documents 
 
 The current screen is a representative shell with sample status values. It does not yet connect to private health APIs.
 
+The architecture includes a read-only MCP query layer, regular longitudinal analysis, structured FHIR family history, NHS/ICD terminology provenance and an evidence-versioned genomics pipeline. See the `docs/` directory.
+
 ## Safety
 
 This software displays and organises personal information. It does not diagnose or recommend treatment. Pharmacogenomic and clinical decision support must be evidence-linked, versioned and reviewed by qualified professionals.
