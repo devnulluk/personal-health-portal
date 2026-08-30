@@ -1,6 +1,7 @@
 services:
   gateway:
     image: ghcr.io/devnulluk/personal-health-portal-gateway:latest
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       portal:
@@ -13,11 +14,13 @@ services:
 
   portal:
     image: ghcr.io/devnulluk/personal-health-portal-web:latest
+    pull_policy: always
     restart: unless-stopped
     networks: [health-portal]
 
   clinical-api:
     image: ghcr.io/devnulluk/personal-health-portal-api:latest
+    pull_policy: always
     restart: unless-stopped
     environment:
       CLINICAL_DATABASE: /data/records.sqlite3

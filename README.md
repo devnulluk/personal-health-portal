@@ -10,9 +10,21 @@ A calm, person-centred interface for health measurements, GP records, documents 
 - Interchange uses FHIR R4 where it fits, without discarding richer source material.
 - Genomic annotations always show evidence source, review date, confidence and limitations.
 
-The current screen is a representative shell with sample status values. It does not yet connect to private health APIs.
+The portal is deployed privately on Mobius behind Cloudflare Access. Its clinical API reads the retained GP-record SQLite database from a named Docker volume; the browser never connects to the database directly. The timeline loads live records in bounded batches and presents record detail in a desktop split view or mobile sheet.
 
 The architecture includes a read-only MCP query layer, regular longitudinal analysis, structured FHIR family history, NHS/ICD terminology provenance and an evidence-versioned genomics pipeline. See the `docs/` directory.
+
+## Mobius deployment
+
+`compose.mobius.yml` runs three containers:
+
+- `portal`: the browser interface;
+- `clinical-api`: a private read API and authenticated atomic database-import endpoint;
+- `gateway`: the only published container, routing `/api/clinical/` to the API and all other requests to the portal.
+
+The clinical database is held in the `personal-health-clinical-data` named volume. Recreating or updating containers does not replace that volume. Published images use `pull_policy: always`, so a Portainer redeploy retrieves the current tested image instead of silently retaining an older `latest` tag.
+
+The current GP snapshot contains real private data only on Mobius. No medical database or source capture is committed to this repository.
 
 ## Safety
 
