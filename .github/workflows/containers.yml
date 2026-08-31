@@ -3,6 +3,10 @@ name: Container images
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'compose.mobius.yml'
   workflow_dispatch:
 
 permissions:
