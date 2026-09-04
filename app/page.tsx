@@ -14,15 +14,16 @@ const representativeRecords: RecordItem[] = [
   { id: 6, date: '09 Apr 2026', type: 'Letters', title: 'Example clinical letter', summary: 'Document listing retained; attachment capture remains a future source task.', source: 'SystmOnline · Patient Record', confidence: 100, fhir: 'DocumentReference · current' },
 ];
 
-const filters = ['All', 'Problems', 'Medications', 'Tests', 'Measurements', 'Vaccinations', 'Letters'];
+const filters = ['All', 'Problems', 'Medications', 'Tests', 'Measurements', 'Vaccinations', 'Appointments', 'Letters'];
 
 function classifyType(entryType: string): string {
   const value = entryType.toLowerCase();
   if (value.includes('medication') || value.includes('repeat')) return 'Medications';
   if (value.includes('vaccin') || value.includes('immun')) return 'Vaccinations';
+  if (value.includes('appointment')) return 'Appointments';
   if (value.includes('blood pressure') || value.includes('measurement')) return 'Measurements';
-  if (value.includes('test') || value.includes('result') || value.includes('laboratory')) return 'Tests';
-  if (value.includes('letter') || value.includes('document') || value.includes('attachment')) return 'Letters';
+  if (value.includes('test') || value.includes('result') || value.includes('laboratory') || value.includes('observation') || value.includes('diagnosticreport')) return 'Tests';
+  if (value.includes('letter') || value.includes('document') || value.includes('attachment') || value.includes('questionnaire')) return 'Letters';
   return 'Problems';
 }
 
@@ -32,7 +33,8 @@ function interpretQuestion(question: string): Exploration {
   if (/medication|medicine|prescri|repeat/.test(value)) filter = 'Medications';
   else if (/test|result|laboratory|blood/.test(value)) filter = 'Tests';
   else if (/vaccin|immun/.test(value)) filter = 'Vaccinations';
-  else if (/letter|document|attachment/.test(value)) filter = 'Letters';
+  else if (/appointment|visit/.test(value)) filter = 'Appointments';
+  else if (/letter|document|attachment|questionnaire/.test(value)) filter = 'Letters';
   else if (/problem|condition|diagnos/.test(value)) filter = 'Problems';
 
   let mode: Exploration['mode'] = 'all';
