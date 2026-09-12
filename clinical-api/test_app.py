@@ -1,8 +1,10 @@
 import sqlite3
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from json import dumps
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import app as clinical
 
@@ -15,6 +17,18 @@ class SourceOverviewTests(unittest.TestCase):
     def test_unconfigured_google_status_is_honest(self):
         with patch.object(clinical, "GOOGLE_STATUS_URL", ""), patch.object(clinical, "GOOGLE_STATUS_USER", ""), patch.object(clinical, "GOOGLE_STATUS_PASSWORD", ""):
             self.assertEqual(clinical.google_importer_status()["state"], "not_linked")
+
+    def test_unconfigured_apple_status_is_honest(self):
+        with patch.object(clinical, "OPEN_WEARABLES_STATUS_URL", ""), patch.object(clinical, "OPEN_WEARABLES_USER_ID", ""), patch.object(clinical, "OPEN_WEARABLES_API_KEY", ""):
+            self.assertEqual(clinical.apple_health_status()["state"], "not_linked")
+
+    def test_recent_successful_apple_upload_is_fresh(self):
+        event = [{"provider": "apple", "source": "sdk", "stage": "completed", "status": "success", "timestamp": datetime.now(UTC).isoformat()}]
+        response = MagicMock()
+        response.read.return_value = dumps(event).encode()
+        response.__enter__.return_value = response
+        with patch.object(clinical, "OPEN_WEARABLES_STATUS_URL", "http://open-wearables"), patch.object(clinical, "OPEN_WEARABLES_USER_ID", "user"), patch.object(clinical, "OPEN_WEARABLES_API_KEY", "key"), patch("app.urllib.request.urlopen", return_value=response):
+            self.assertEqual(clinical.apple_health_status()["state"], "fresh")
 
     def test_overview_uses_retained_capture_time(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -7,7 +7,8 @@ import tempfile
 import urllib.error
 import urllib.request
 from base64 import b64encode
-from datetime import UTC, datetime
+from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from json import loads
 from pathlib import Path
 
@@ -18,6 +19,10 @@ IMPORT_TOKEN = os.environ.get("CLINICAL_IMPORT_TOKEN", "")
 GOOGLE_STATUS_URL = os.environ.get("GOOGLE_IMPORTER_STATUS_URL", "")
 GOOGLE_STATUS_USER = os.environ.get("GOOGLE_IMPORTER_STATUS_USER", "")
 GOOGLE_STATUS_PASSWORD = os.environ.get("GOOGLE_IMPORTER_STATUS_PASSWORD", "")
+OPEN_WEARABLES_STATUS_URL = os.environ.get("OPEN_WEARABLES_STATUS_URL", "")
+OPEN_WEARABLES_USER_ID = os.environ.get("OPEN_WEARABLES_USER_ID", "")
+OPEN_WEARABLES_API_KEY = os.environ.get("OPEN_WEARABLES_API_KEY", "")
+APPLE_FRESH_AFTER_HOURS = int(os.environ.get("APPLE_FRESH_AFTER_HOURS", "24"))
 EXPECTED_TABLES = {"raw_capture", "parsed_event", "coding_assertion", "coding_review", "analysis_finding"}
 
 app = FastAPI(title="Personal Health Clinical API", docs_url=None, redoc_url=None)
@@ -79,6 +84,35 @@ def google_importer_status() -> dict:
         return {"source_key": "google-health", "label": "Fitbit / Google Health", "state": "unavailable", "detail": "Importer status is temporarily unavailable"}
 
 
+def apple_health_status() -> dict:
+    if not (OPEN_WEARABLES_STATUS_URL and OPEN_WEARABLES_USER_ID and OPEN_WEARABLES_API_KEY):
+        return {"source_key": "apple-health", "label": "Apple Health", "state": "not_linked", "detail": "Open Wearables upload freshness is not linked yet"}
+    url = f"{OPEN_WEARABLES_STATUS_URL.rstrip('/')}/api/v1/users/{OPEN_WEARABLES_USER_ID}/sync/recent?limit=200"
+    request = urllib.request.Request(url, headers={"X-Open-Wearables-API-Key": OPEN_WEARABLES_API_KEY})
+    try:
+        with urllib.request.urlopen(request, timeout=4) as response:
+            payload = loads(response.read(1024 * 1024))
+        events = [event for event in payload if isinstance(event, dict) and str(event.get("provider", "")).casefold() == "apple"] if isinstance(payload, list) else []
+        if not events:
+            return {"source_key": "apple-health", "label": "Apple Health", "state": "stale", "detail": "No Apple upload was reported in Open Wearables' recent sync window"}
+        latest = max(events, key=lambda event: str(event.get("timestamp") or event.get("ended_at") or ""))
+        latest_at = latest.get("ended_at") or latest.get("timestamp")
+        parsed_at = datetime.fromisoformat(str(latest_at).replace("Z", "+00:00")) if latest_at else None
+        status = str(latest.get("status", "unknown")).casefold()
+        stage = str(latest.get("stage", "unknown")).casefold()
+        if status == "failed" or stage == "failed":
+            state, detail = "needs_attention", "Latest Apple Health upload failed"
+        elif status in {"success", "skipped"} or stage == "completed":
+            fresh_after = timedelta(hours=max(1, APPLE_FRESH_AFTER_HOURS))
+            state = "fresh" if parsed_at and datetime.now(UTC) - parsed_at.astimezone(UTC) <= fresh_after else "stale"
+            detail = "Latest Apple Health upload reported by Open Wearables"
+        else:
+            state, detail = "unknown", "Apple Health upload is currently in progress"
+        return {"source_key": "apple-health", "label": "Apple Health", "state": state, "latest_data_at": latest_at, "checked_at": datetime.now(UTC).isoformat(), "detail": detail}
+    except (OSError, ValueError, TypeError, urllib.error.HTTPError):
+        return {"source_key": "apple-health", "label": "Apple Health", "state": "unavailable", "detail": "Open Wearables upload status is temporarily unavailable"}
+
+
 @app.get("/health")
 def health() -> dict:
     if not DATABASE.exists():
@@ -109,7 +143,7 @@ def summary() -> dict:
 
 @app.get("/overview/sources")
 def overview_sources() -> dict:
-    with connect() as connection:
+    with closing(connect()) as connection:
         rows = connection.execute(
             """WITH ranked AS (SELECT *, row_number() OVER (
               PARTITION BY capture_sha256, source_file, event_date, author, organisation, entry_type, source_text
@@ -140,7 +174,7 @@ def overview_sources() -> dict:
         item["parser_versions"] = sorted(set(item["parser_versions"] + (row["parser_versions"] or "").split(",")))
     sources = list(grouped.values())
     sources.append(google_importer_status())
-    sources.append({"source_key": "apple-health", "label": "Apple Health", "state": "not_linked", "detail": "Available in Open Wearables; portal freshness is not linked yet"})
+    sources.append(apple_health_status())
     return {"generated_at": datetime.now(UTC).isoformat(), "sources": sources}
 
 
