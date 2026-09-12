@@ -25,6 +25,9 @@ services:
     environment:
       CLINICAL_DATABASE: /data/records.sqlite3
       CLINICAL_IMPORT_TOKEN: ${CLINICAL_IMPORT_TOKEN:?Set a long random import token}
+      GOOGLE_IMPORTER_STATUS_URL: ${GOOGLE_IMPORTER_STATUS_URL:-}
+      GOOGLE_IMPORTER_STATUS_USER: ${GOOGLE_IMPORTER_STATUS_USER:-}
+      GOOGLE_IMPORTER_STATUS_PASSWORD: ${GOOGLE_IMPORTER_STATUS_PASSWORD:-}
     volumes:
       - clinical-data:/data
     healthcheck:

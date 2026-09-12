@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 type CodingAssertion = { system: string; code: string; display?: string; version?: string; status: string; confidence: number; method: string; mapping_provenance: string; review_required: number };
 type RecordItem = { id: number; date: string; type: string; title: string; summary: string; source: string; sourceFile?: string; captureSha?: string; parserVersion?: string; confidence: number; review?: string; fhir: string; codings?: CodingAssertion[] };
 type ClinicalSummary = { current_events: number; review_items: number; source_captures: number };
+type SourceStatus = { source_key: string; label: string; state: string; detail: string; latest_data_at?: string; latest_capture_at?: string; current_event_count?: number; capture_count?: number };
+type SourcesPayload = { generated_at: string; sources: SourceStatus[] };
 type ClinicalEventPayload = { items: Array<{ id: number; event_date: string; entry_type: string; source_text: string; source_file: string; organisation: string; parse_confidence: number; parse_notes: string; capture_sha256: string; parser_version: string; coding_assertions: string }> };
 type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'undated' | 'recent'; explanation: string };
 
@@ -58,6 +60,8 @@ export default function Home() {
   const [records, setRecords] = useState<RecordItem[]>(representativeRecords);
   const [summary, setSummary] = useState({ current_events: 433, review_items: 30, source_captures: 24 });
   const [usingRealData, setUsingRealData] = useState(false);
+  const [sources, setSources] = useState<SourceStatus[]>([]);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(1);
@@ -86,10 +90,15 @@ export default function Home() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [summaryResponse, eventsResponse] = await Promise.all([
+        const [summaryResponse, eventsResponse, sourcesResponse] = await Promise.all([
           fetch('/api/clinical/summary'),
           fetch('/api/clinical/events?limit=1000'),
+          fetch('/api/clinical/overview/sources'),
         ]);
+        if (sourcesResponse.ok) {
+          try { setSources(((await sourcesResponse.json()) as SourcesPayload).sources); } catch { /* Keep the source panel explicitly unavailable. */ }
+        }
+        setSourcesLoaded(true);
         if (!summaryResponse.ok || !eventsResponse.ok) return;
         const liveSummary = await summaryResponse.json() as ClinicalSummary;
         const eventPayload = await eventsResponse.json() as ClinicalEventPayload;
@@ -119,6 +128,7 @@ export default function Home() {
           setUsingRealData(true);
         }
       } catch {
+        setSourcesLoaded(true);
         // The hosted design prototype deliberately falls back to representative data.
       }
     };
@@ -156,7 +166,7 @@ export default function Home() {
       <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">PH</span><span>Personal Health Data</span></a>
       <span className="privacy"><span className="privacyDot" />Private service</span>
     </div></header>
-    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
+    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#data-sources">Sources</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
     <main>
     <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
@@ -167,6 +177,14 @@ export default function Home() {
       <article className="metric"><span>Current events</span><strong>{summary.current_events}</strong><small>{usingRealData ? 'Live private dataset' : 'Corrected v0.4 dataset'}</small></article>
       <article className="metric"><span>Needs attention</span><strong>{summary.review_items}</strong><small>Explicit review flags</small></article>
       <article className="metric"><span>Source captures</span><strong>{summary.source_captures}</strong><small>Checksummed evidence</small></article>
+    </section>
+    <section className="sourceOverview panel" id="data-sources" aria-labelledby="source-freshness-title">
+      <div className="sourceOverviewHeading"><div><p className="eyebrow">Data provenance</p><h2 id="source-freshness-title">Your connected sources</h2><p>When each source last supplied data. A delayed source does not mean the retained record is clinically wrong.</p></div><span className="smallPill">Evidence, not guesses</span></div>
+      {sources.length ? <ul className="sourceStatusList">{sources.map((source) => {
+        const timestamp = source.latest_data_at || source.latest_capture_at;
+        const stateLabel = ({ fresh: 'Fresh', stale: 'Delayed', needs_attention: 'Needs attention', imported: 'Imported', not_linked: 'Not linked', unavailable: 'Unavailable', unknown: 'Unknown' } as Record<string, string>)[source.state] || source.state;
+        return <li key={source.source_key}><span className={`sourceStatusMark state-${source.state}`} aria-hidden="true" /><div><strong>{source.label}</strong><span>{source.detail}</span>{source.current_event_count !== undefined && <small>{source.current_event_count} current events · {source.capture_count} retained captures</small>}</div><div className="sourceStatusState"><strong>{stateLabel}</strong>{timestamp ? <time dateTime={timestamp}>{new Date(timestamp).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time> : <span>No verified timestamp</span>}</div></li>;
+      })}</ul> : <div className="sourceStatusEmpty" role="status">{sourcesLoaded ? 'Source overview is temporarily unavailable. The timeline remains available below.' : 'Source evidence is loading from the private service.'}</div>}
     </section>
     <section className="explorer panel" aria-labelledby="explorer-title">
       <div className="explorerCopy"><p className="eyebrow">Explore your timeline</p><h2 id="explorer-title">Ask a question, see the evidence</h2><p>This first version translates a question into visible, deterministic filters. It does not diagnose, infer causation or send your records to an AI service.</p></div>

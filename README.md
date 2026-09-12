@@ -14,7 +14,7 @@ The portal is deployed privately on Mobius behind Cloudflare Access. Its clinica
 
 The architecture includes a read-only MCP query layer, regular longitudinal analysis, structured FHIR family history, NHS/ICD terminology provenance and an evidence-versioned genomics pipeline. See the `docs/` directory.
 
-The first evidence-first [timeline explorer](docs/TIMELINE-EXPLORER.md) is live. It turns a deliberately limited set of natural-language-style questions into visible deterministic filters, keeping source records and uncertainty in view while the cross-source and MCP layers are developed.
+The first evidence-first [timeline explorer](docs/TIMELINE-EXPLORER.md) is live. It turns a deliberately limited set of natural-language-style questions into visible deterministic filters, keeping source records and uncertainty in view. The [data-source overview](docs/DATA-SOURCE-OVERVIEW.md) reports retained clinical captures and can consume a sanitised Google importer freshness signal without exposing its credentials or health measurements.
 
 ## Mobius deployment
 
