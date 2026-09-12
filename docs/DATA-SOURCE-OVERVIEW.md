@@ -14,9 +14,11 @@ The portal reports what it can prove about each pipeline without treating all so
 Set these only in the private `clinical-api` container environment:
 
 ```text
-GOOGLE_IMPORTER_STATUS_URL=https://healthdata-import.devnull.co.uk/status
+GOOGLE_IMPORTER_STATUS_URL=http://10.30.30.2:8010/status
 GOOGLE_IMPORTER_STATUS_USER=<HTTP Basic user>
 GOOGLE_IMPORTER_STATUS_PASSWORD=<HTTP Basic password>
 ```
 
 The API reads only the importer freshness and sync state, then returns a sanitised summary. The raw status document, current measurements, 24-hour series and credentials are never proxied to the browser.
+
+On Mobius, use the importer's private LAN endpoint rather than routing this server-to-server check through the public Cloudflare tunnel. The public status URL remains useful for human administration, but Cloudflare may reject a container hairpin request.
