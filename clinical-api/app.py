@@ -83,8 +83,14 @@ def events(limit: int = 500, offset: int = 0, query: str = "", entry_type: str =
             f"""WITH ranked AS (SELECT *, row_number() OVER (
               PARTITION BY capture_sha256, source_file, event_date, author, organisation, entry_type, source_text
               ORDER BY id DESC) AS revision_rank FROM parsed_event)
-              SELECT id, event_date, author, organisation, entry_type, source_text, source_file,
-                     capture_sha256, parser_version, parse_confidence, parse_notes
+            SELECT id, event_date, author, organisation, entry_type, source_text, source_file,
+                     capture_sha256, parser_version, parse_confidence, parse_notes,
+                     (SELECT json_group_array(json_object(
+                        'system', ca.system, 'code', ca.code, 'display', ca.display,
+                        'version', ca.version, 'status', ca.status, 'confidence', ca.confidence,
+                        'method', ca.method, 'mapping_provenance', ca.mapping_provenance,
+                        'review_required', ca.review_required))
+                      FROM coding_assertion ca WHERE ca.event_id = ranked.id) AS coding_assertions
               FROM ranked WHERE {' AND '.join(where)}
               ORDER BY CASE WHEN event_date = 'Unknown' THEN 1 ELSE 0 END, event_date DESC, id DESC
               LIMIT ? OFFSET ?""",

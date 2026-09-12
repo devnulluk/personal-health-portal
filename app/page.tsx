@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-type RecordItem = { id: number; date: string; type: string; title: string; summary: string; source: string; confidence: number; review?: string; fhir: string };
+type CodingAssertion = { system: string; code: string; display?: string; version?: string; status: string; confidence: number; method: string; mapping_provenance: string; review_required: number };
+type RecordItem = { id: number; date: string; type: string; title: string; summary: string; source: string; sourceFile?: string; captureSha?: string; parserVersion?: string; confidence: number; review?: string; fhir: string; codings?: CodingAssertion[] };
+type ClinicalSummary = { current_events: number; review_items: number; source_captures: number };
+type ClinicalEventPayload = { items: Array<{ id: number; event_date: string; entry_type: string; source_text: string; source_file: string; organisation: string; parse_confidence: number; parse_notes: string; capture_sha256: string; parser_version: string; coding_assertions: string }> };
 type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'undated' | 'recent'; explanation: string };
 
 const representativeRecords: RecordItem[] = [
@@ -64,6 +67,7 @@ export default function Home() {
   const [question, setQuestion] = useState('');
   const [exploration, setExploration] = useState<Exploration>({ filter: 'All', query: '', mode: 'all', explanation: 'All record types · all dates' });
   const [hasExplored, setHasExplored] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const shown = records.filter((record) => {
     const matchesFilter = filter === 'All' || record.type === filter;
     const matchesQuery = `${record.title} ${record.summary} ${record.type}`.toLowerCase().includes(query.toLowerCase());
@@ -87,11 +91,12 @@ export default function Home() {
           fetch('/api/clinical/events?limit=1000'),
         ]);
         if (!summaryResponse.ok || !eventsResponse.ok) return;
-        const liveSummary = await summaryResponse.json();
-        const eventPayload = await eventsResponse.json();
+        const liveSummary = await summaryResponse.json() as ClinicalSummary;
+        const eventPayload = await eventsResponse.json() as ClinicalEventPayload;
         const liveRecords: RecordItem[] = eventPayload.items.map((item: {
           id: number; event_date: string; entry_type: string; source_text: string;
           source_file: string; organisation: string; parse_confidence: number; parse_notes: string;
+          capture_sha256: string; parser_version: string; coding_assertions: string;
         }) => ({
           id: item.id,
           date: item.event_date || 'Unknown date',
@@ -99,9 +104,13 @@ export default function Home() {
           title: item.entry_type || 'Clinical record',
           summary: item.source_text,
           source: [item.organisation, item.source_file].filter(Boolean).join(' · '),
+          sourceFile: item.source_file,
+          captureSha: item.capture_sha256,
+          parserVersion: item.parser_version,
           confidence: Math.round(item.parse_confidence * 100),
           review: item.parse_confidence < 1 || item.parse_notes !== '[]' ? 'Check source and parsing notes' : undefined,
           fhir: `${item.entry_type || 'Clinical event'} · source-preserving representation`,
+          codings: JSON.parse(item.coding_assertions || '[]'),
         }));
         if (liveRecords.length) {
           setSummary(liveSummary);
@@ -123,6 +132,10 @@ export default function Home() {
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [detailsOpen]);
+
+  useEffect(() => {
+    if (detailsOpen) closeButtonRef.current?.focus();
   }, [detailsOpen]);
 
   const explore = (nextQuestion = question) => {
@@ -175,17 +188,18 @@ export default function Home() {
       <div className="reviewLayout">
         <div className="timeline" aria-live="polite">
           <div className="timelineSummary"><strong>{shown.length} records</strong><span>{shown.length > visibleRecords.length ? `Showing the first ${visibleRecords.length}` : 'All matching records shown'}</span></div>
-          {visibleRecords.length ? visibleRecords.map((record) => <button key={record.id} className={`recordRow ${selected === record.id ? 'selected' : ''}`} onClick={() => { setSelected(record.id); setDetailsOpen(true); }} aria-haspopup="dialog"><span className="recordDate">{record.date}</span><span className={`typeDot type-${record.type.toLowerCase()}`} /><span className="recordCopy"><strong>{record.title}</strong><small>{record.type} · {record.source}</small></span><span className={`confidence ${record.confidence === 100 ? 'verified' : 'review'}`}>{record.confidence}%</span></button>) : <div className="emptyState"><strong>No matching records</strong><span>Try another filter or search phrase.</span></div>}
+          {visibleRecords.length ? visibleRecords.map((record) => <button key={record.id} className={`recordRow ${selected === record.id ? 'selected' : ''}`} onClick={() => { setSelected(record.id); setDetailsOpen(true); }} aria-haspopup="dialog" aria-controls="record-inspector" aria-expanded={selected === record.id && detailsOpen}><span className="recordDate">{record.date}</span><span className={`typeDot type-${record.type.toLowerCase()}`} /><span className="recordCopy"><strong>{record.title}</strong><small>{record.type} · {record.source}</small></span><span className={`confidence ${record.confidence === 100 ? 'verified' : 'review'}`}>{record.confidence}%</span></button>) : <div className="emptyState"><strong>No matching records</strong><span>Try another filter or search phrase.</span></div>}
           {visibleRecords.length < shown.length && <div className="loadMore"><button onClick={() => setVisibleLimit((limit) => limit + 100)}>Show 100 more</button></div>}
         </div>
         {detailsOpen && <button className="detailsBackdrop" aria-label="Close record details" onClick={() => setDetailsOpen(false)} />}
-        <aside className={`inspector ${detailsOpen ? 'detailsOpen' : ''}`} aria-label="Selected record inspector" aria-modal={detailsOpen ? 'true' : undefined} role={detailsOpen ? 'dialog' : undefined}>
-          <button className="detailsClose" onClick={() => setDetailsOpen(false)} aria-label="Close record details"><span aria-hidden="true">←</span> Back to records</button>
+        <aside id="record-inspector" className={`inspector ${detailsOpen ? 'detailsOpen' : ''}`} aria-label="Selected record inspector" aria-modal={detailsOpen ? 'true' : undefined} role={detailsOpen ? 'dialog' : undefined}>
+          <button ref={closeButtonRef} className="detailsClose" onClick={() => setDetailsOpen(false)} aria-label="Close record details"><span aria-hidden="true">←</span> Back to records</button>
           <div className="inspectorTop"><span className="recordType">{active.type}</span><span className={`confidence ${active.confidence === 100 ? 'verified' : 'review'}`}>{active.confidence}% confidence</span></div>
           <h3>{active.title}</h3><p className="inspectorDate">{active.date}</p>
           {active.review && <div className="reviewBanner"><strong>Review needed</strong><span>{active.review}</span></div>}
           <div className="segmented" role="group" aria-label="Inspect record representation"><button className={inspector === 'source' ? 'active' : ''} onClick={() => setInspector('source')}>Source</button><button className={inspector === 'fhir' ? 'active' : ''} onClick={() => setInspector('fhir')}>FHIR</button></div>
-          {inspector === 'source' ? <div className="evidence"><span>Preserved source wording</span><p>{active.summary}</p><dl><div><dt>Origin</dt><dd>{active.source}</dd></div><div><dt>Integrity</dt><dd>SHA-256 verified</dd></div><div><dt>Capture</dt><dd>Rendered DOM</dd></div></dl></div> : <div className="fhirCard"><span>Generated resource</span><strong>{active.fhir}</strong><p>Derived representation. Review state and source checksum remain attached.</p></div>}
+          {inspector === 'source' ? <div className="evidence"><span>Preserved source wording</span><p>{active.summary}</p><dl><div><dt>Origin</dt><dd>{active.source}</dd></div><div><dt>Source file</dt><dd>{active.sourceFile || 'Not supplied'}</dd></div><div><dt>Integrity</dt><dd>{active.captureSha ? `SHA-256 · ${active.captureSha.slice(0, 12)}…` : 'SHA-256 verified'}</dd></div><div><dt>Parser</dt><dd>{active.parserVersion || 'Not supplied'}</dd></div></dl></div> : <div className="fhirCard"><span>Generated resource</span><strong>{active.fhir}</strong><p>Derived representation. Review state and source checksum remain attached.</p></div>}
+          <div className="codingEvidence"><span>Terminology mapping</span>{active.codings?.length ? active.codings.map((coding) => <div className="codingRow" key={`${coding.system}-${coding.code}-${coding.status}`}><strong>{coding.display || coding.code}</strong><small>{coding.system} · {coding.code} · {coding.status} · {Math.round(coding.confidence * 100)}% mapping confidence</small><small>{coding.method}{coding.review_required ? ' · review required' : ''}</small></div>) : <p>No terminology assertion attached to this event. Source wording remains authoritative.</p>}</div>
           <div className="trustScale"><span className="done">Source fact</span><span className={active.confidence === 100 ? 'done' : ''}>Parsed record</span><span>Clinical review</span></div>
         </aside>
       </div>
