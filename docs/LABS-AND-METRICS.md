@@ -16,6 +16,7 @@ The private API exposes the derived view at `GET /observations`. It does not mod
 ## Initial supported observations
 
 - Numeric SystmOnline test-result details
+- Component-level rows from the retained SystmOnline `Pathology Investigations` section
 - Systolic and diastolic blood pressure
 - Weight in kilograms
 - BMI

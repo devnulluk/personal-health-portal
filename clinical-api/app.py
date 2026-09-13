@@ -211,6 +211,16 @@ def observations() -> dict:
     for row in rows:
         text, entry_type = row["source_text"], row["entry_type"].casefold()
         candidates: list[tuple[str, str, float, str, str, tuple[float, float] | None]] = []
+        if "laboratory observation" in entry_type:
+            name = _labelled_value(text, "Test")
+            raw_value = _labelled_value(text, "Value") or ""
+            numeric = _number_and_unit(raw_value)
+            unit = _labelled_value(text, "Unit") or ""
+            low = _labelled_value(text, "Reference low")
+            high = _labelled_value(text, "Reference high")
+            guide = (float(low), float(high)) if low and high else None
+            if name and numeric:
+                candidates.append((f"lab:{name.casefold()}", name, numeric[0], unit, "laboratory", guide))
         if "test result" in entry_type and "index" not in entry_type:
             name = _labelled_value(text, "Tests") or _labelled_value(text, "Result type")
             raw_result = _labelled_value(text, "Result") or ""
