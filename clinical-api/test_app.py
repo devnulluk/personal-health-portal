@@ -64,13 +64,16 @@ class SourceOverviewTests(unittest.TestCase):
                 CREATE TABLE analysis_finding (id INTEGER PRIMARY KEY);
                 INSERT INTO parsed_event VALUES (1,'a','lab.html','2026-09-01','','GP','Test result','Tests: Haemoglobin; Result: 142 g/L (reference range 130-180)','0.4.0',.99,'[]');
                 INSERT INTO parsed_event VALUES (2,'b','record.html','2026-09-02','','GP','Blood pressure','Blood pressure 118/76 mmHg','0.4.0',1,'[]');
+                INSERT INTO parsed_event VALUES (3,'c','lab2.html','2026-09-03','','GP','Test result','Tests: Example qualitative test; Result: Satisfactory','0.4.0',1,'[]');
             """)
             connection.commit(); connection.close()
             with patch.object(clinical, "DATABASE", database):
                 groups = clinical.observations()["groups"]
-            self.assertEqual(len(groups), 3)
-            lab = next(group for group in groups if group["key"].startswith("lab:"))
+            self.assertEqual(len(groups), 4)
+            lab = next(group for group in groups if "haemoglobin" in group["key"])
             self.assertEqual(lab["guide_high"], 180)
+            qualitative = next(group for group in groups if "qualitative" in group["key"])
+            self.assertIsNone(qualitative["points"][0]["value"])
 
 
 if __name__ == "__main__":

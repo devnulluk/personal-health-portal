@@ -215,8 +215,11 @@ def observations() -> dict:
             name = _labelled_value(text, "Tests") or _labelled_value(text, "Result type")
             raw_result = _labelled_value(text, "Result") or ""
             numeric = _number_and_unit(raw_result)
-            if name and numeric:
-                candidates.append((f"lab:{name.casefold()}", name, numeric[0], numeric[1], "laboratory", _reference_range(raw_result)))
+            if name:
+                key = f"lab:{name.casefold()}"
+                guide = _reference_range(raw_result)
+                group = groups.setdefault(key, {"key": key, "label": name, "kind": "laboratory", "unit": numeric[1] if numeric else "", "guide_low": guide[0] if guide else None, "guide_high": guide[1] if guide else None, "guide_kind": "source reference range" if guide else None, "points": []})
+                group["points"].append({"event_id": row["id"], "date": row["event_date"], "value": numeric[0] if numeric else None, "display": raw_result, "source_text": text, "source_file": row["source_file"], "organisation": row["organisation"], "capture_sha256": row["capture_sha256"], "parser_version": row["parser_version"], "confidence": row["parse_confidence"]})
         pressure = re.search(r"\b(\d{2,3})\s*/\s*(\d{2,3})\b", text)
         if pressure and ("blood pressure" in entry_type or "blood pressure" in text.casefold()):
             candidates.extend([
@@ -233,7 +236,7 @@ def observations() -> dict:
         for key, label, value, unit, kind, guide in candidates:
             guide_kind = "NHS general guide" if key.startswith("metric:blood-pressure") or key == "metric:bmi" else ("source reference range" if guide else None)
             group = groups.setdefault(key, {"key": key, "label": label, "kind": kind, "unit": unit, "guide_low": guide[0] if guide else None, "guide_high": guide[1] if guide else None, "guide_kind": guide_kind, "points": []})
-            group["points"].append({"event_id": row["id"], "date": row["event_date"], "value": value, "source_text": text, "source_file": row["source_file"], "organisation": row["organisation"], "capture_sha256": row["capture_sha256"], "parser_version": row["parser_version"], "confidence": row["parse_confidence"]})
+            group["points"].append({"event_id": row["id"], "date": row["event_date"], "value": value, "display": f"{value:g} {unit}".strip(), "source_text": text, "source_file": row["source_file"], "organisation": row["organisation"], "capture_sha256": row["capture_sha256"], "parser_version": row["parser_version"], "confidence": row["parse_confidence"]})
     return {"generated_at": datetime.now(UTC).isoformat(), "groups": sorted(groups.values(), key=lambda item: (item["kind"], item["label"].casefold()))}
 
 
