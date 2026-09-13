@@ -12,7 +12,8 @@ type ObservationGroup = { key: string; label: string; kind: 'laboratory' | 'metr
 type ClinicalEventPayload = { items: Array<{ id: number; event_date: string; entry_type: string; source_text: string; source_file: string; organisation: string; parse_confidence: number; parse_notes: string; capture_sha256: string; parser_version: string; coding_assertions: string }> };
 type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'undated' | 'recent'; explanation: string };
 type WearableDay = { date: string; steps?: number | null; active_minutes?: number | null; duration_minutes?: number | null; efficiency_percent?: number | null; resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_spo2_percent?: number | null; recovery_score?: number | null };
-type WearableOverview = { available: boolean; generated_at?: string; activity?: WearableDay[]; sleep?: WearableDay[]; recovery?: WearableDay[]; open_wearables_url: string; detail?: string };
+type WearableBody = { averaged?: { resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_hrv_rmssd_ms?: number | null } };
+type WearableOverview = { available: boolean; generated_at?: string; activity?: WearableDay[]; sleep?: WearableDay[]; recovery?: WearableDay[]; body?: WearableBody | null; open_wearables_url: string; detail?: string };
 
 const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
@@ -209,8 +210,9 @@ export default function Home() {
   const recoveryDays = wearables?.recovery ?? [];
   const latestSteps = lastNumber(activityDays, 'steps');
   const latestSleep = lastNumber(sleepDays, 'duration_minutes');
-  const latestRestingHeartRate = lastNumber(recoveryDays, 'resting_heart_rate_bpm');
-  const latestHrv = lastNumber(recoveryDays, 'avg_hrv_sdnn_ms');
+  const latestRestingHeartRate = lastNumber(recoveryDays, 'resting_heart_rate_bpm') ?? wearables?.body?.averaged?.resting_heart_rate_bpm ?? null;
+  const latestHrv = lastNumber(recoveryDays, 'avg_hrv_sdnn_ms') ?? lastNumber(sleepDays, 'avg_hrv_sdnn_ms') ?? wearables?.body?.averaged?.avg_hrv_sdnn_ms ?? null;
+  const hrvTrend = valuesFor(recoveryDays, 'avg_hrv_sdnn_ms').length ? valuesFor(recoveryDays, 'avg_hrv_sdnn_ms') : valuesFor(sleepDays, 'avg_hrv_sdnn_ms');
   const sevenDayActiveMinutes = valuesFor(activityDays.slice(-7), 'active_minutes').reduce((total, value) => total + value, 0);
   const sleepValues = valuesFor(sleepDays.slice(-7), 'duration_minutes');
   const sevenDaySleepAverage = sleepValues.length ? sleepValues.reduce((total, value) => total + value, 0) / sleepValues.length : null;
@@ -244,8 +246,8 @@ export default function Home() {
         <div className="wearableGrid">
           <article className="wearableMetric"><span>Latest steps</span><strong>{latestSteps?.toLocaleString('en-GB') ?? '—'}</strong><MiniSparkline label="Steps" values={valuesFor(activityDays, 'steps')} /><small>Daily total · last 14 days</small></article>
           <article className="wearableMetric"><span>Latest sleep</span><strong>{latestSleep !== null ? `${Math.floor(latestSleep / 60)}h ${Math.round(latestSleep % 60)}m` : '—'}</strong><MiniSparkline label="Sleep duration" values={valuesFor(sleepDays, 'duration_minutes')} /><small>Sleep duration · last 14 days</small></article>
-          <article className="wearableMetric"><span>Resting heart rate</span><strong>{latestRestingHeartRate !== null ? `${Math.round(latestRestingHeartRate)} bpm` : '—'}</strong><MiniSparkline label="Resting heart rate" values={valuesFor(recoveryDays, 'resting_heart_rate_bpm')} /><small>Compare with your own baseline</small></article>
-          <article className="wearableMetric"><span>Heart-rate variability</span><strong>{latestHrv !== null ? `${Math.round(latestHrv)} ms` : '—'}</strong><MiniSparkline label="Heart-rate variability" values={valuesFor(recoveryDays, 'avg_hrv_sdnn_ms')} /><small>SDNN · trend matters more than one reading</small></article>
+          <article className="wearableMetric"><span>Resting heart rate</span><strong>{latestRestingHeartRate !== null ? `${Math.round(latestRestingHeartRate)} bpm` : '—'}</strong><MiniSparkline label="Resting heart rate" values={valuesFor(recoveryDays, 'resting_heart_rate_bpm')} /><small>7-day average when a daily series is unavailable</small></article>
+          <article className="wearableMetric"><span>Heart-rate variability</span><strong>{latestHrv !== null ? `${Math.round(latestHrv)} ms` : '—'}</strong><MiniSparkline label="Heart-rate variability" values={hrvTrend} /><small>SDNN · trend matters more than one reading</small></article>
         </div>
         <div className="guidanceGrid">
           <article className="dailyNote"><span className="noteLabel">A useful nudge</span><h3>{wellbeingNote}</h3><p>General guidance only. Your health, medication, disability and circumstances can change what is appropriate.</p><div><a href="https://www.nhs.uk/live-well/exercise/physical-activity-guidelines-for-adults-aged-19-to-64/" target="_blank" rel="noreferrer">NHS activity guidance</a><a href="https://www.nhs.uk/every-mind-matters/mental-health-issues/sleep/" target="_blank" rel="noreferrer">NHS sleep guidance</a></div></article>
