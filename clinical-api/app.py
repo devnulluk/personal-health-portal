@@ -247,6 +247,14 @@ def observations() -> dict:
             guide_kind = "NHS general guide" if key.startswith("metric:blood-pressure") or key == "metric:bmi" else ("source reference range" if guide else None)
             group = groups.setdefault(key, {"key": key, "label": label, "kind": kind, "unit": unit, "guide_low": guide[0] if guide else None, "guide_high": guide[1] if guide else None, "guide_kind": guide_kind, "points": []})
             group["points"].append({"event_id": row["id"], "date": row["event_date"], "value": value, "display": f"{value:g} {unit}".strip(), "source_text": text, "source_file": row["source_file"], "organisation": row["organisation"], "capture_sha256": row["capture_sha256"], "parser_version": row["parser_version"], "confidence": row["parse_confidence"]})
+    for group in groups.values():
+        unique: dict[tuple, dict] = {}
+        for point in group["points"]:
+            identity = (point["date"], point["value"], point["display"], group["unit"])
+            existing = unique.get(identity)
+            if existing is None or "Panel:" in point["source_text"]:
+                unique[identity] = point
+        group["points"] = sorted(unique.values(), key=lambda point: (point["date"], point["event_id"]))
     return {"generated_at": datetime.now(UTC).isoformat(), "groups": sorted(groups.values(), key=lambda item: (item["kind"], item["label"].casefold()))}
 
 

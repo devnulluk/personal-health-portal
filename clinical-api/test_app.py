@@ -66,6 +66,7 @@ class SourceOverviewTests(unittest.TestCase):
                 INSERT INTO parsed_event VALUES (2,'b','record.html','2026-09-02','','GP','Blood pressure','Blood pressure 118/76 mmHg','0.4.0',1,'[]');
                 INSERT INTO parsed_event VALUES (3,'c','lab2.html','2026-09-03','','GP','Test result','Tests: Example qualitative test; Result: Satisfactory','0.4.0',1,'[]');
                 INSERT INTO parsed_event VALUES (4,'d','lab3.html','2026-09-04','','GP','Laboratory observation','Test: Serum example level; Value: 42.5; Unit: mmol/L; Reference low: 10; Reference high: 50','0.6.0',.99,'[]');
+                INSERT INTO parsed_event VALUES (5,'e','detail.html','2026-09-04','','GP','Laboratory observation','Test: Serum example level; Value: 42.5; Unit: mmol/L; Panel: Example panel; Reference low: 10; Reference high: 50','0.6.1',.99,'[]');
             """)
             connection.commit(); connection.close()
             with patch.object(clinical, "DATABASE", database):
@@ -77,6 +78,7 @@ class SourceOverviewTests(unittest.TestCase):
             self.assertIsNone(qualitative["points"][0]["value"])
             structured = next(group for group in groups if "serum example" in group["key"])
             self.assertEqual(structured["unit"], "mmol/L")
+            self.assertEqual(len(structured["points"]), 1)
 
 
 if __name__ == "__main__":
