@@ -7,6 +7,8 @@ type RecordItem = { id: number; date: string; type: string; title: string; summa
 type ClinicalSummary = { current_events: number; review_items: number; source_captures: number };
 type SourceStatus = { source_key: string; label: string; state: string; detail: string; latest_data_at?: string; latest_capture_at?: string; current_event_count?: number; capture_count?: number };
 type SourcesPayload = { generated_at: string; sources: SourceStatus[] };
+type ObservationPoint = { event_id: number; date: string; value: number; source_text: string; source_file: string; organisation: string; capture_sha256: string; parser_version: string; confidence: number };
+type ObservationGroup = { key: string; label: string; kind: 'laboratory' | 'metric'; unit: string; guide_low: number | null; guide_high: number | null; guide_kind: string | null; points: ObservationPoint[] };
 type ClinicalEventPayload = { items: Array<{ id: number; event_date: string; entry_type: string; source_text: string; source_file: string; organisation: string; parse_confidence: number; parse_notes: string; capture_sha256: string; parser_version: string; coding_assertions: string }> };
 type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'undated' | 'recent'; explanation: string };
 
@@ -20,6 +22,20 @@ const representativeRecords: RecordItem[] = [
 ];
 
 const filters = ['All', 'Problems', 'Medications', 'Tests', 'Measurements', 'Vaccinations', 'Appointments', 'Letters'];
+
+function TrendChart({ group }: { group: ObservationGroup }) {
+  const points = group.points.slice(-30);
+  const values = points.map((point) => point.value).concat(group.guide_low ?? [], group.guide_high ?? []);
+  const low = Math.min(...values); const high = Math.max(...values); const span = high - low || 1;
+  const x = (index: number) => points.length === 1 ? 50 : 5 + index * 90 / (points.length - 1);
+  const y = (value: number) => 92 - ((value - low) / span) * 82;
+  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${x(index)} ${y(point.value)}`).join(' ');
+  return <svg className="trendChart" viewBox="0 0 100 100" role="img" aria-label={`${group.label} history, ${points.length} readings`} preserveAspectRatio="none">
+    {group.guide_low !== null && group.guide_high !== null && <rect className="guideBand" x="0" y={y(group.guide_high)} width="100" height={Math.max(2, y(group.guide_low) - y(group.guide_high))} />}
+    <path className="trendLine" d={path} />
+    {points.map((point, index) => <circle key={`${point.event_id}-${index}`} cx={x(index)} cy={y(point.value)} r="1.8"><title>{point.date}: {point.value} {group.unit}</title></circle>)}
+  </svg>;
+}
 
 function classifyType(entryType: string): string {
   const value = entryType.toLowerCase();
@@ -62,6 +78,8 @@ export default function Home() {
   const [usingRealData, setUsingRealData] = useState(false);
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const [observations, setObservations] = useState<ObservationGroup[]>([]);
+  const [observationKind, setObservationKind] = useState<'laboratory' | 'metric'>('laboratory');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(1);
@@ -90,11 +108,13 @@ export default function Home() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [summaryResponse, eventsResponse, sourcesResponse] = await Promise.all([
+        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse] = await Promise.all([
           fetch('/api/clinical/summary'),
           fetch('/api/clinical/events?limit=1000'),
           fetch('/api/clinical/overview/sources'),
+          fetch('/api/clinical/observations'),
         ]);
+        if (observationsResponse.ok) setObservations((await observationsResponse.json() as { groups: ObservationGroup[] }).groups);
         if (sourcesResponse.ok) {
           try { setSources(((await sourcesResponse.json()) as SourcesPayload).sources); } catch { /* Keep the source panel explicitly unavailable. */ }
         }
@@ -166,7 +186,7 @@ export default function Home() {
       <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">PH</span><span>Personal Health Data</span></a>
       <span className="privacy"><span className="privacyDot" />Private service</span>
     </div></header>
-    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#data-sources">Sources</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
+    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#data-sources">Sources</a><a href="#observations">Labs & metrics</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
     <main>
     <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
@@ -185,6 +205,12 @@ export default function Home() {
         const stateLabel = ({ fresh: 'Fresh', stale: 'Delayed', needs_attention: 'Needs attention', imported: 'Imported', not_linked: 'Not linked', unavailable: 'Unavailable', unknown: 'Unknown' } as Record<string, string>)[source.state] || source.state;
         return <li key={source.source_key}><span className={`sourceStatusMark state-${source.state}`} aria-hidden="true" /><div><strong>{source.label}</strong><span>{source.detail}</span>{source.current_event_count !== undefined && <small>{source.current_event_count} current events · {source.capture_count} retained captures</small>}</div><div className="sourceStatusState"><strong>{stateLabel}</strong>{timestamp ? <time dateTime={timestamp}>{new Date(timestamp).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time> : <span>No verified timestamp</span>}</div></li>;
       })}</ul> : <div className="sourceStatusEmpty" role="status">{sourcesLoaded ? 'Source overview is temporarily unavailable. The timeline remains available below.' : 'Source evidence is loading from the private service.'}</div>}
+    </section>
+    <section className="observations panel" id="observations" aria-labelledby="observations-title">
+      <div className="observationsHeading"><div><p className="eyebrow">Longitudinal observations</p><h2 id="observations-title">Labs and personal metrics</h2><p>Each card keeps readings together by test or measurement, with history, units, range context and source evidence.</p></div><div className="observationTabs" role="group" aria-label="Observation type"><button className={observationKind === 'laboratory' ? 'active' : ''} onClick={() => setObservationKind('laboratory')}>Laboratory tests</button><button className={observationKind === 'metric' ? 'active' : ''} onClick={() => setObservationKind('metric')}>Body metrics</button></div></div>
+      <div className="observationGrid">{observations.filter((group) => group.kind === observationKind).map((group) => { const latest = group.points[group.points.length - 1]; return <article className="observationCard" key={group.key}><div className="observationCardTop"><div><h3>{group.label}</h3><p>{group.points.length} reading{group.points.length === 1 ? '' : 's'} · latest {latest.date}</p></div><strong>{latest.value} <small>{group.unit}</small></strong></div><TrendChart group={group} /><div className="rangeContext">{group.guide_low !== null && group.guide_high !== null ? <><strong>{group.guide_low}–{group.guide_high} {group.unit}</strong><span>{group.guide_kind}</span></> : <><strong>No range captured</strong><span>Check the preserved result or clinician guidance</span></>}</div><details><summary>Reading history and evidence</summary><ol>{[...group.points].reverse().map((point) => <li key={point.event_id}><time dateTime={point.date}>{point.date}</time><strong>{point.value} {group.unit}</strong><span>{Math.round(point.confidence * 100)}% extraction confidence · {point.organisation || point.source_file}</span></li>)}</ol></details></article>; })}</div>
+      {!observations.some((group) => group.kind === observationKind) && <div className="observationEmpty"><strong>No chartable {observationKind === 'laboratory' ? 'laboratory results' : 'body metrics'} yet</strong><span>The source record remains available in the GP timeline. Only unambiguous numeric readings are graphed.</span></div>}
+      <p className="clinicalCaveat">Shaded bands are source-provided laboratory intervals or clearly labelled NHS general guides—not personalised targets. Ranges vary by laboratory, method, age, context and individual circumstances.</p>
     </section>
     <section className="explorer panel" aria-labelledby="explorer-title">
       <div className="explorerCopy"><p className="eyebrow">Explore your timeline</p><h2 id="explorer-title">Ask a question, see the evidence</h2><p>This first version translates a question into visible, deterministic filters. It does not diagnose, infer causation or send your records to an AI service.</p></div>

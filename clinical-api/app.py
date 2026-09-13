@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import sqlite3
 import tempfile
@@ -176,6 +177,64 @@ def overview_sources() -> dict:
     sources.append(google_importer_status())
     sources.append(apple_health_status())
     return {"generated_at": datetime.now(UTC).isoformat(), "sources": sources}
+
+
+def _labelled_value(text: str, label: str) -> str | None:
+    match = re.search(rf"(?:^|;\s*){re.escape(label)}:\s*(.*?)(?=;\s*[A-Z][^:;]{{1,40}}:|$)", text, re.IGNORECASE)
+    return match.group(1).strip() if match else None
+
+
+def _number_and_unit(value: str) -> tuple[float, str] | None:
+    match = re.search(r"(?<![\w.])(-?\d+(?:\.\d+)?)\s*([^,;()]*)", value)
+    return (float(match.group(1)), match.group(2).strip()) if match else None
+
+
+def _reference_range(value: str) -> tuple[float, float] | None:
+    match = re.search(r"(?:reference|normal|target|range)[^\d-]*(-?\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(-?\d+(?:\.\d+)?)", value, re.IGNORECASE)
+    return (float(match.group(1)), float(match.group(2))) if match else None
+
+
+@app.get("/observations")
+def observations() -> dict:
+    """Conservatively extract chartable observations while retaining source wording."""
+    with closing(connect()) as connection:
+        rows = connection.execute(
+            """WITH ranked AS (SELECT *, row_number() OVER (
+              PARTITION BY capture_sha256, source_file, event_date, author, organisation, entry_type, source_text
+              ORDER BY id DESC) AS revision_rank FROM parsed_event)
+            SELECT id, event_date, entry_type, source_text, source_file, organisation,
+                   capture_sha256, parser_version, parse_confidence
+              FROM ranked WHERE revision_rank = 1 AND lower(event_date) <> 'unknown'
+              ORDER BY event_date"""
+        ).fetchall()
+    groups: dict[str, dict] = {}
+    for row in rows:
+        text, entry_type = row["source_text"], row["entry_type"].casefold()
+        candidates: list[tuple[str, str, float, str, str, tuple[float, float] | None]] = []
+        if "test result" in entry_type and "index" not in entry_type:
+            name = _labelled_value(text, "Tests") or _labelled_value(text, "Result type")
+            raw_result = _labelled_value(text, "Result") or ""
+            numeric = _number_and_unit(raw_result)
+            if name and numeric:
+                candidates.append((f"lab:{name.casefold()}", name, numeric[0], numeric[1], "laboratory", _reference_range(raw_result)))
+        pressure = re.search(r"\b(\d{2,3})\s*/\s*(\d{2,3})\b", text)
+        if pressure and ("blood pressure" in entry_type or "blood pressure" in text.casefold()):
+            candidates.extend([
+                ("metric:blood-pressure-systolic", "Blood pressure — systolic", float(pressure.group(1)), "mmHg", "metric", (90, 120)),
+                ("metric:blood-pressure-diastolic", "Blood pressure — diastolic", float(pressure.group(2)), "mmHg", "metric", (60, 80)),
+            ])
+        for key, label, pattern, unit, guide in (
+            ("metric:weight", "Weight", r"\bweight\D{0,20}(\d+(?:\.\d+)?)\s*(?:kg|kilograms?)", "kg", None),
+            ("metric:bmi", "BMI", r"\bbmi\D{0,12}(\d+(?:\.\d+)?)", "kg/m²", (18.5, 24.9)),
+        ):
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                candidates.append((key, label, float(match.group(1)), unit, "metric", guide))
+        for key, label, value, unit, kind, guide in candidates:
+            guide_kind = "NHS general guide" if key.startswith("metric:blood-pressure") or key == "metric:bmi" else ("source reference range" if guide else None)
+            group = groups.setdefault(key, {"key": key, "label": label, "kind": kind, "unit": unit, "guide_low": guide[0] if guide else None, "guide_high": guide[1] if guide else None, "guide_kind": guide_kind, "points": []})
+            group["points"].append({"event_id": row["id"], "date": row["event_date"], "value": value, "source_text": text, "source_file": row["source_file"], "organisation": row["organisation"], "capture_sha256": row["capture_sha256"], "parser_version": row["parser_version"], "confidence": row["parse_confidence"]})
+    return {"generated_at": datetime.now(UTC).isoformat(), "groups": sorted(groups.values(), key=lambda item: (item["kind"], item["label"].casefold()))}
 
 
 @app.get("/events")

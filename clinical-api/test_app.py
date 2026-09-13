@@ -52,6 +52,26 @@ class SourceOverviewTests(unittest.TestCase):
             self.assertEqual(systm["latest_capture_at"], "2026-09-12T08:00:00+00:00")
             self.assertEqual(systm["current_event_count"], 1)
 
+    def test_observations_group_labs_and_blood_pressure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "records.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE raw_capture (sha256 TEXT PRIMARY KEY, source_uri TEXT, captured_at TEXT, content_type TEXT, content BLOB);
+                CREATE TABLE parsed_event (id INTEGER PRIMARY KEY, capture_sha256 TEXT, source_file TEXT, event_date TEXT, author TEXT, organisation TEXT, entry_type TEXT, source_text TEXT, parser_version TEXT, parse_confidence REAL, parse_notes TEXT);
+                CREATE TABLE coding_assertion (id INTEGER PRIMARY KEY);
+                CREATE TABLE coding_review (id INTEGER PRIMARY KEY);
+                CREATE TABLE analysis_finding (id INTEGER PRIMARY KEY);
+                INSERT INTO parsed_event VALUES (1,'a','lab.html','2026-09-01','','GP','Test result','Tests: Haemoglobin; Result: 142 g/L (reference range 130-180)','0.4.0',.99,'[]');
+                INSERT INTO parsed_event VALUES (2,'b','record.html','2026-09-02','','GP','Blood pressure','Blood pressure 118/76 mmHg','0.4.0',1,'[]');
+            """)
+            connection.commit(); connection.close()
+            with patch.object(clinical, "DATABASE", database):
+                groups = clinical.observations()["groups"]
+            self.assertEqual(len(groups), 3)
+            lab = next(group for group in groups if group["key"].startswith("lab:"))
+            self.assertEqual(lab["guide_high"], 180)
+
 
 if __name__ == "__main__":
     unittest.main()
