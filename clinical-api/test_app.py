@@ -30,6 +30,32 @@ class SourceOverviewTests(unittest.TestCase):
         with patch.object(clinical, "OPEN_WEARABLES_STATUS_URL", "http://open-wearables"), patch.object(clinical, "OPEN_WEARABLES_USER_ID", "user"), patch.object(clinical, "OPEN_WEARABLES_API_KEY", "key"), patch("app.urllib.request.urlopen", return_value=response):
             self.assertEqual(clinical.apple_health_status()["state"], "fresh")
 
+    def test_wearable_overview_uses_supported_summary_endpoints(self):
+        responses = {
+            "/summaries/activity": {"data": [{"date": "2026-09-12", "steps": 8432}]},
+            "/summaries/sleep": {"data": [{"date": "2026-09-12", "duration_minutes": 450}]},
+            "/summaries/recovery": {"data": [{"date": "2026-09-12", "resting_heart_rate_bpm": 61}]},
+            "/summaries/body": {"slow_changing": {"weight_kg": 80}},
+        }
+
+        def fake_get(path, parameters=None):
+            return next(value for suffix, value in responses.items() if suffix in path)
+
+        with patch.object(clinical, "OPEN_WEARABLES_STATUS_URL", "http://open-wearables"), patch.object(clinical, "OPEN_WEARABLES_USER_ID", "user"), patch.object(clinical, "OPEN_WEARABLES_API_KEY", "key"), patch.object(clinical, "_open_wearables_get", side_effect=fake_get):
+            payload = clinical.wearable_overview_payload()
+
+        self.assertTrue(payload["available"])
+        self.assertEqual(payload["activity"][0]["steps"], 8432)
+        self.assertEqual(payload["sleep"][0]["duration_minutes"], 450)
+        self.assertNotIn("key", dumps(payload))
+
+    def test_wearable_overview_fails_without_exposing_exception(self):
+        with patch.object(clinical, "OPEN_WEARABLES_STATUS_URL", "http://open-wearables"), patch.object(clinical, "OPEN_WEARABLES_USER_ID", "user"), patch.object(clinical, "OPEN_WEARABLES_API_KEY", "secret"), patch.object(clinical, "_open_wearables_get", side_effect=OSError("secret network detail")):
+            payload = clinical.wearable_overview_payload()
+
+        self.assertFalse(payload["available"])
+        self.assertNotIn("secret", dumps(payload))
+
     def test_overview_uses_retained_capture_time(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "records.sqlite3"

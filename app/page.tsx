@@ -11,6 +11,8 @@ type ObservationPoint = { event_id: number; date: string; value: number | null; 
 type ObservationGroup = { key: string; label: string; kind: 'laboratory' | 'metric'; unit: string; guide_low: number | null; guide_high: number | null; guide_kind: string | null; points: ObservationPoint[] };
 type ClinicalEventPayload = { items: Array<{ id: number; event_date: string; entry_type: string; source_text: string; source_file: string; organisation: string; parse_confidence: number; parse_notes: string; capture_sha256: string; parser_version: string; coding_assertions: string }> };
 type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'undated' | 'recent'; explanation: string };
+type WearableDay = { date: string; steps?: number | null; active_minutes?: number | null; duration_minutes?: number | null; efficiency_percent?: number | null; resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_spo2_percent?: number | null; recovery_score?: number | null };
+type WearableOverview = { available: boolean; generated_at?: string; activity?: WearableDay[]; sleep?: WearableDay[]; recovery?: WearableDay[]; open_wearables_url: string; detail?: string };
 
 const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
@@ -35,6 +37,25 @@ function TrendChart({ group }: { group: ObservationGroup }) {
     <path className="trendLine" d={path} />
     {points.map((point, index) => <circle key={`${point.event_id}-${index}`} cx={x(index)} cy={y(point.value)} r="1.8"><title>{point.date}: {point.value} {group.unit}</title></circle>)}
   </svg>;
+}
+
+function MiniSparkline({ values, label }: { values: number[]; label: string }) {
+  if (values.length < 2) return <div className="wearableSparkEmpty">Awaiting a trend</div>;
+  const low = Math.min(...values); const high = Math.max(...values); const span = high - low || 1;
+  const path = values.map((value, index) => `${index ? 'L' : 'M'} ${index * 100 / (values.length - 1)} ${38 - ((value - low) / span) * 34}`).join(' ');
+  return <svg className="wearableSpark" viewBox="0 0 100 42" role="img" aria-label={`${label}, ${values.length}-day trend`} preserveAspectRatio="none"><path d={path} /></svg>;
+}
+
+function lastNumber(days: WearableDay[], field: keyof WearableDay): number | null {
+  for (let index = days.length - 1; index >= 0; index -= 1) {
+    const value = days[index][field];
+    if (typeof value === 'number') return value;
+  }
+  return null;
+}
+
+function valuesFor(days: WearableDay[], field: keyof WearableDay): number[] {
+  return days.map((day) => day[field]).filter((value): value is number => typeof value === 'number');
 }
 
 function classifyType(entryType: string): string {
@@ -79,6 +100,7 @@ export default function Home() {
   const [sources, setSources] = useState<SourceStatus[]>([]);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [observations, setObservations] = useState<ObservationGroup[]>([]);
+  const [wearables, setWearables] = useState<WearableOverview | null>(null);
   const [observationKind, setObservationKind] = useState<'laboratory' | 'metric'>('laboratory');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
@@ -108,12 +130,14 @@ export default function Home() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse] = await Promise.all([
+        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse, wearableResponse] = await Promise.all([
           fetch('/api/clinical/summary'),
           fetch('/api/clinical/events?limit=1000'),
           fetch('/api/clinical/overview/sources'),
           fetch('/api/clinical/observations'),
+          fetch('/api/clinical/overview/wearables'),
         ]);
+        if (wearableResponse.ok) setWearables(await wearableResponse.json() as WearableOverview);
         if (observationsResponse.ok) setObservations((await observationsResponse.json() as { groups: ObservationGroup[] }).groups);
         if (sourcesResponse.ok) {
           try { setSources(((await sourcesResponse.json()) as SourcesPayload).sources); } catch { /* Keep the source panel explicitly unavailable. */ }
@@ -180,13 +204,29 @@ export default function Home() {
     window.setTimeout(() => document.querySelector('#records')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
+  const activityDays = wearables?.activity ?? [];
+  const sleepDays = wearables?.sleep ?? [];
+  const recoveryDays = wearables?.recovery ?? [];
+  const latestSteps = lastNumber(activityDays, 'steps');
+  const latestSleep = lastNumber(sleepDays, 'duration_minutes');
+  const latestRestingHeartRate = lastNumber(recoveryDays, 'resting_heart_rate_bpm');
+  const latestHrv = lastNumber(recoveryDays, 'avg_hrv_sdnn_ms');
+  const sevenDayActiveMinutes = valuesFor(activityDays.slice(-7), 'active_minutes').reduce((total, value) => total + value, 0);
+  const sleepValues = valuesFor(sleepDays.slice(-7), 'duration_minutes');
+  const sevenDaySleepAverage = sleepValues.length ? sleepValues.reduce((total, value) => total + value, 0) / sleepValues.length : null;
+  const wellbeingNote = sevenDaySleepAverage !== null && sevenDaySleepAverage < 420
+    ? 'Your 7-day sleep average is below the general 7-hour guide. How you feel during the day matters too.'
+    : sevenDayActiveMinutes < 150
+      ? `You have ${Math.round(sevenDayActiveMinutes)} active minutes recorded in 7 days. Every minute counts towards the general 150-minute weekly guide.`
+      : 'Your recent sleep and activity are within the broad general guides checked here. Keep watching the pattern, not a single day.';
+
   return <>
     <a className="skipLink" href="#records">Skip to health records</a>
     <header className="siteHeader"><div className="headerInner">
       <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">PH</span><span>Personal Health Data</span></a>
       <span className="privacy"><span className="privacyDot" />Private service</span>
     </div></header>
-    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#overview">Overview</a><a href="#data-sources">Sources</a><a href="#observations">Labs & metrics</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
+    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#today">Today</a><a href="#data-sources">Sources</a><a href="#observations">Labs & metrics</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
     <main>
     <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
@@ -197,6 +237,21 @@ export default function Home() {
       <article className="metric"><span>Current events</span><strong>{summary.current_events}</strong><small>{usingRealData ? 'Live private dataset' : 'Corrected v0.4 dataset'}</small></article>
       <article className="metric"><span>Needs attention</span><strong>{summary.review_items}</strong><small>Explicit review flags</small></article>
       <article className="metric"><span>Source captures</span><strong>{summary.source_captures}</strong><small>Checksummed evidence</small></article>
+    </section>
+    <section className="todayPanel panel" id="today" aria-labelledby="today-title">
+      <div className="todayHeading"><div><p className="eyebrow">Latest from your devices</p><h2 id="today-title">Today at a glance</h2><p>Current readings and short trends from Open Wearables. These are observations, not a diagnosis.</p></div><a className="openWearablesLink" href={wearables?.open_wearables_url ?? 'https://healthdata.devnull.co.uk/dashboard'} target="_blank" rel="noreferrer">Open Open Wearables <span aria-hidden="true">↗</span></a></div>
+      {wearables?.available ? <>
+        <div className="wearableGrid">
+          <article className="wearableMetric"><span>Latest steps</span><strong>{latestSteps?.toLocaleString('en-GB') ?? '—'}</strong><MiniSparkline label="Steps" values={valuesFor(activityDays, 'steps')} /><small>Daily total · last 14 days</small></article>
+          <article className="wearableMetric"><span>Latest sleep</span><strong>{latestSleep !== null ? `${Math.floor(latestSleep / 60)}h ${Math.round(latestSleep % 60)}m` : '—'}</strong><MiniSparkline label="Sleep duration" values={valuesFor(sleepDays, 'duration_minutes')} /><small>Sleep duration · last 14 days</small></article>
+          <article className="wearableMetric"><span>Resting heart rate</span><strong>{latestRestingHeartRate !== null ? `${Math.round(latestRestingHeartRate)} bpm` : '—'}</strong><MiniSparkline label="Resting heart rate" values={valuesFor(recoveryDays, 'resting_heart_rate_bpm')} /><small>Compare with your own baseline</small></article>
+          <article className="wearableMetric"><span>Heart-rate variability</span><strong>{latestHrv !== null ? `${Math.round(latestHrv)} ms` : '—'}</strong><MiniSparkline label="Heart-rate variability" values={valuesFor(recoveryDays, 'avg_hrv_sdnn_ms')} /><small>SDNN · trend matters more than one reading</small></article>
+        </div>
+        <div className="guidanceGrid">
+          <article className="dailyNote"><span className="noteLabel">A useful nudge</span><h3>{wellbeingNote}</h3><p>General guidance only. Your health, medication, disability and circumstances can change what is appropriate.</p><div><a href="https://www.nhs.uk/live-well/exercise/physical-activity-guidelines-for-adults-aged-19-to-64/" target="_blank" rel="noreferrer">NHS activity guidance</a><a href="https://www.nhs.uk/every-mind-matters/mental-health-issues/sleep/" target="_blank" rel="noreferrer">NHS sleep guidance</a></div></article>
+          <article className="watchCard"><span className="noteLabel">Worth watching</span><h3>Your baseline beats generic thresholds</h3><p>Look for sustained changes across several days in sleep, resting heart rate, HRV and how you feel. The portal does not currently raise a clinical alert from a wearable reading.</p><small>Seek professional advice for symptoms or concerns; urgent symptoms should use NHS 111 or 999 as appropriate.</small></article>
+        </div>
+      </> : <div className="wearableUnavailable"><strong>Wearable metrics are not available just now</strong><span>{wearables?.detail ?? 'Connecting securely to Open Wearables…'}</span></div>}
     </section>
     <section className="sourceOverview panel" id="data-sources" aria-labelledby="source-freshness-title">
       <div className="sourceOverviewHeading"><div><p className="eyebrow">Data provenance</p><h2 id="source-freshness-title">Your connected sources</h2><p>When each source last supplied data. A delayed source does not mean the retained record is clinically wrong.</p></div><span className="smallPill">Evidence, not guesses</span></div>

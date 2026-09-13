@@ -12,6 +12,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from json import loads
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 
@@ -114,6 +115,50 @@ def apple_health_status() -> dict:
         return {"source_key": "apple-health", "label": "Apple Health", "state": "unavailable", "detail": "Open Wearables upload status is temporarily unavailable"}
 
 
+def _open_wearables_get(path: str, parameters: dict[str, str | int] | None = None) -> object:
+    if not (OPEN_WEARABLES_STATUS_URL and OPEN_WEARABLES_USER_ID and OPEN_WEARABLES_API_KEY):
+        raise RuntimeError("Open Wearables is not configured")
+    query = f"?{urlencode(parameters)}" if parameters else ""
+    url = f"{OPEN_WEARABLES_STATUS_URL.rstrip('/')}{path}{query}"
+    request = urllib.request.Request(url, headers={"X-Open-Wearables-API-Key": OPEN_WEARABLES_API_KEY})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return loads(response.read(2 * 1024 * 1024))
+
+
+def _summary_rows(payload: object) -> list[dict]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return []
+    return [row for row in payload["data"] if isinstance(row, dict)]
+
+
+def wearable_overview_payload() -> dict:
+    today = datetime.now(UTC).date()
+    start = today - timedelta(days=13)
+    parameters = {"start_date": start.isoformat(), "end_date": today.isoformat(), "limit": 100}
+    base = f"/api/v1/users/{OPEN_WEARABLES_USER_ID}"
+    try:
+        activity = _summary_rows(_open_wearables_get(f"{base}/summaries/activity", parameters))
+        sleep = _summary_rows(_open_wearables_get(f"{base}/summaries/sleep", parameters))
+        recovery = _summary_rows(_open_wearables_get(f"{base}/summaries/recovery", parameters))
+        body = _open_wearables_get(f"{base}/summaries/body", {"average_period": 7, "latest_window_hours": 24})
+    except (OSError, ValueError, TypeError, RuntimeError, urllib.error.HTTPError):
+        return {
+            "available": False,
+            "detail": "Open Wearables metrics are temporarily unavailable",
+            "open_wearables_url": "https://healthdata.devnull.co.uk/dashboard",
+        }
+    return {
+        "available": True,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "range": {"start": start.isoformat(), "end": today.isoformat()},
+        "activity": activity,
+        "sleep": sleep,
+        "recovery": recovery,
+        "body": body if isinstance(body, dict) else None,
+        "open_wearables_url": "https://healthdata.devnull.co.uk/dashboard",
+    }
+
+
 @app.get("/health")
 def health() -> dict:
     if not DATABASE.exists():
@@ -177,6 +222,11 @@ def overview_sources() -> dict:
     sources.append(google_importer_status())
     sources.append(apple_health_status())
     return {"generated_at": datetime.now(UTC).isoformat(), "sources": sources}
+
+
+@app.get("/overview/wearables")
+def wearable_overview() -> dict:
+    return wearable_overview_payload()
 
 
 def _labelled_value(text: str, label: str) -> str | None:
