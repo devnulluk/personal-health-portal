@@ -56,6 +56,21 @@ class SourceOverviewTests(unittest.TestCase):
         self.assertFalse(payload["available"])
         self.assertNotIn("secret", dumps(payload))
 
+    def test_genomics_overview_exposes_counts_not_credentials(self):
+        response = MagicMock()
+        response.read.return_value = dumps({"variants": 1234, "evidence_records": 8, "matched_findings": 3, "genome_build": "GRCh38", "last_genome_import": "2026-09-18T18:00:00Z"}).encode()
+        response.__enter__.return_value = response
+        with patch.object(clinical, "GENOMICS_MONITOR_URL", "http://genomics"), patch.object(clinical, "GENOMICS_API_TOKEN", "top-secret"), patch("app.urllib.request.urlopen", return_value=response) as urlopen:
+            payload = clinical.genomics_overview_payload()
+        self.assertEqual(payload["variant_count"], 1234)
+        self.assertEqual(payload["state"], "indexed")
+        self.assertNotIn("top-secret", dumps(payload))
+        self.assertEqual(urlopen.call_args.args[0].headers["Authorization"], "Bearer top-secret")
+
+    def test_unconfigured_genomics_is_honest(self):
+        with patch.object(clinical, "GENOMICS_MONITOR_URL", ""), patch.object(clinical, "GENOMICS_API_TOKEN", ""):
+            self.assertEqual(clinical.genomics_overview_payload()["state"], "not_linked")
+
     def test_overview_uses_retained_capture_time(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "records.sqlite3"

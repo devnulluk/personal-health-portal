@@ -25,6 +25,8 @@ OPEN_WEARABLES_STATUS_URL = os.environ.get("OPEN_WEARABLES_STATUS_URL", "")
 OPEN_WEARABLES_USER_ID = os.environ.get("OPEN_WEARABLES_USER_ID", "")
 OPEN_WEARABLES_API_KEY = os.environ.get("OPEN_WEARABLES_API_KEY", "")
 APPLE_FRESH_AFTER_HOURS = int(os.environ.get("APPLE_FRESH_AFTER_HOURS", "24"))
+GENOMICS_MONITOR_URL = os.environ.get("GENOMICS_MONITOR_URL", "")
+GENOMICS_API_TOKEN = os.environ.get("GENOMICS_API_TOKEN", "")
 EXPECTED_TABLES = {"raw_capture", "parsed_event", "coding_assertion", "coding_review", "analysis_finding"}
 
 app = FastAPI(title="Personal Health Clinical API", docs_url=None, redoc_url=None)
@@ -159,6 +161,33 @@ def wearable_overview_payload() -> dict:
     }
 
 
+def genomics_overview_payload() -> dict:
+    """Return a deliberately small, non-identifying view of the private genome index."""
+    if not (GENOMICS_MONITOR_URL and GENOMICS_API_TOKEN):
+        return {"available": False, "state": "not_linked", "detail": "The private genome index is not linked yet"}
+    request = urllib.request.Request(
+        f"{GENOMICS_MONITOR_URL.rstrip('/')}/status",
+        headers={"Authorization": f"Bearer {GENOMICS_API_TOKEN}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = loads(response.read(1024 * 1024))
+        if not isinstance(payload, dict):
+            raise ValueError("Unexpected response")
+        return {
+            "available": True,
+            "state": "indexed" if payload.get("last_genome_import") else "awaiting_import",
+            "genome_build": payload.get("genome_build"),
+            "variant_count": int(payload.get("variants") or 0),
+            "evidence_records": int(payload.get("evidence_records") or 0),
+            "matched_findings": int(payload.get("matched_findings") or 0),
+            "last_genome_import": payload.get("last_genome_import"),
+            "detail": "Private on-server index; raw variants are not exposed to the portal",
+        }
+    except (OSError, ValueError, TypeError, urllib.error.HTTPError):
+        return {"available": False, "state": "unavailable", "detail": "The private genome index is temporarily unavailable"}
+
+
 @app.get("/health")
 def health() -> dict:
     if not DATABASE.exists():
@@ -227,6 +256,11 @@ def overview_sources() -> dict:
 @app.get("/overview/wearables")
 def wearable_overview() -> dict:
     return wearable_overview_payload()
+
+
+@app.get("/overview/genomics")
+def genomics_overview() -> dict:
+    return genomics_overview_payload()
 
 
 def _labelled_value(text: str, label: str) -> str | None:

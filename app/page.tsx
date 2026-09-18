@@ -14,6 +14,7 @@ type Exploration = { filter: string; query: string; mode: 'all' | 'review' | 'un
 type WearableDay = { date: string; steps?: number | null; active_minutes?: number | null; duration_minutes?: number | null; efficiency_percent?: number | null; resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_spo2_percent?: number | null; recovery_score?: number | null };
 type WearableBody = { averaged?: { resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_hrv_rmssd_ms?: number | null } };
 type WearableOverview = { available: boolean; generated_at?: string; activity?: WearableDay[]; sleep?: WearableDay[]; recovery?: WearableDay[]; body?: WearableBody | null; open_wearables_url: string; detail?: string };
+type GenomicsOverview = { available: boolean; state: string; genome_build?: string | null; variant_count?: number; evidence_records?: number; matched_findings?: number; last_genome_import?: string | null; detail: string };
 
 const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
@@ -102,6 +103,7 @@ export default function Home() {
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [observations, setObservations] = useState<ObservationGroup[]>([]);
   const [wearables, setWearables] = useState<WearableOverview | null>(null);
+  const [genomics, setGenomics] = useState<GenomicsOverview | null>(null);
   const [observationKind, setObservationKind] = useState<'laboratory' | 'metric'>('laboratory');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
@@ -131,13 +133,15 @@ export default function Home() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse, wearableResponse] = await Promise.all([
+        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse, wearableResponse, genomicsResponse] = await Promise.all([
           fetch('/api/clinical/summary'),
           fetch('/api/clinical/events?limit=1000'),
           fetch('/api/clinical/overview/sources'),
           fetch('/api/clinical/observations'),
           fetch('/api/clinical/overview/wearables'),
+          fetch('/api/clinical/overview/genomics'),
         ]);
+        if (genomicsResponse.ok) setGenomics(await genomicsResponse.json() as GenomicsOverview);
         if (wearableResponse.ok) setWearables(await wearableResponse.json() as WearableOverview);
         if (observationsResponse.ok) setObservations((await observationsResponse.json() as { groups: ObservationGroup[] }).groups);
         if (sourcesResponse.ok) {
@@ -262,6 +266,15 @@ export default function Home() {
         const stateLabel = ({ fresh: 'Fresh', stale: 'Delayed', needs_attention: 'Needs attention', imported: 'Imported', not_linked: 'Not linked', unavailable: 'Unavailable', unknown: 'Unknown' } as Record<string, string>)[source.state] || source.state;
         return <li key={source.source_key}><span className={`sourceStatusMark state-${source.state}`} aria-hidden="true" /><div><strong>{source.label}</strong><span>{source.detail}</span>{source.current_event_count !== undefined && <small>{source.current_event_count} current events · {source.capture_count} retained captures</small>}</div><div className="sourceStatusState"><strong>{stateLabel}</strong>{timestamp ? <time dateTime={timestamp}>{new Date(timestamp).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time> : <span>No verified timestamp</span>}</div></li>;
       })}</ul> : <div className="sourceStatusEmpty" role="status">{sourcesLoaded ? 'Source overview is temporarily unavailable. The timeline remains available below.' : 'Source evidence is loading from the private service.'}</div>}
+    </section>
+    <section className="genomicsOverview panel" id="genomics" aria-labelledby="genomics-title">
+      <div className="genomicsCopy"><p className="eyebrow">Genomics</p><h2 id="genomics-title">Your genome, ready for new evidence</h2><p>{genomics?.detail ?? 'Checking the private genome index…'}</p></div>
+      <div className="genomicsStats">
+        <article><span>Reference build</span><strong>{genomics?.genome_build ?? '—'}</strong></article>
+        <article><span>Indexed calls</span><strong>{genomics?.available ? (genomics.variant_count ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
+        <article><span>Evidence matches</span><strong>{genomics?.available ? (genomics.matched_findings ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
+      </div>
+      <div className={`genomicsState state-${genomics?.state ?? 'checking'}`}><strong>{genomics?.state === 'indexed' ? 'Genome indexed' : genomics?.state === 'awaiting_import' ? 'Import in progress' : genomics?.state === 'unavailable' ? 'Temporarily unavailable' : 'Connecting'}</strong><span>{genomics?.last_genome_import ? `Last indexed ${new Date(genomics.last_genome_import).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : 'No completed import reported yet'}</span></div>
     </section>
     <section className="observations panel" id="observations" aria-labelledby="observations-title">
       <div className="observationsHeading"><div><p className="eyebrow">Longitudinal observations</p><h2 id="observations-title">Labs and personal metrics</h2><p>Each card keeps readings together by test or measurement, with history, units, range context and source evidence.</p></div><div className="observationTabs" role="group" aria-label="Observation type"><button className={observationKind === 'laboratory' ? 'active' : ''} onClick={() => setObservationKind('laboratory')}>Laboratory tests</button><button className={observationKind === 'metric' ? 'active' : ''} onClick={() => setObservationKind('metric')}>Body metrics</button></div></div>
