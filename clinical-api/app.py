@@ -14,7 +14,7 @@ from json import loads
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile
 
 DATABASE = Path(os.environ.get("CLINICAL_DATABASE", "/data/records.sqlite3"))
 IMPORT_TOKEN = os.environ.get("CLINICAL_IMPORT_TOKEN", "")
@@ -222,6 +222,39 @@ def genomics_report_payload() -> dict:
         return {"available": False, "state": "unavailable", "detail": "The private genomics report is temporarily unavailable"}
 
 
+def genomics_findings_payload(category: str, limit: int, offset: int, query: str = "") -> dict:
+    """Proxy an intentionally bounded set of variant findings; the service credential stays server-side."""
+    if not (GENOMICS_MONITOR_URL and GENOMICS_API_TOKEN):
+        return {"available": False, "state": "not_linked", "items": [], "total": 0, "detail": "The private genomics report is not linked yet"}
+    parameters = {"category": category, "limit": limit, "offset": offset}
+    if query:
+        parameters["q"] = query
+    request = urllib.request.Request(
+        f"{GENOMICS_MONITOR_URL.rstrip('/')}/findings?{urlencode(parameters)}",
+        headers={"Authorization": f"Bearer {GENOMICS_API_TOKEN}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = loads(response.read(4 * 1024 * 1024))
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise ValueError("Unexpected response")
+        allowed = {
+            "source", "source_record_id", "source_version", "title", "summary", "category",
+            "evidence_level", "clinical_significance", "called_chrom", "called_pos", "called_ref",
+            "called_alt", "rsid", "genotype_display", "phased", "filter_status", "quality",
+            "effect_allele", "effect_allele_status", "trait_label", "population", "effect_size",
+            "p_value", "url", "match_basis",
+        }
+        items = [{key: item.get(key) for key in allowed if key in item} for item in payload["items"] if isinstance(item, dict)]
+        return {
+            "available": True, "state": "ready", "items": items,
+            "total": int(payload.get("total") or 0), "limit": limit, "offset": offset,
+            "privacy": "Variant-level findings are shown only inside this private portal. The service credential remains server-side.",
+        }
+    except (OSError, ValueError, TypeError, urllib.error.HTTPError):
+        return {"available": False, "state": "unavailable", "items": [], "total": 0, "detail": "Individual genome findings are temporarily unavailable"}
+
+
 @app.get("/health")
 def health() -> dict:
     if not DATABASE.exists():
@@ -300,6 +333,16 @@ def genomics_overview() -> dict:
 @app.get("/overview/genomics/report")
 def genomics_report() -> dict:
     return genomics_report_payload()
+
+
+@app.get("/overview/genomics/findings")
+def genomics_findings(
+    category: str = Query("clinical", pattern="^(clinical|health|uncertain|research|trait|ancestry)$"),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=120),
+) -> dict:
+    return genomics_findings_payload(category, limit, offset, q.strip())
 
 
 def _labelled_value(text: str, label: str) -> str | None:

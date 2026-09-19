@@ -88,6 +88,22 @@ class SourceOverviewTests(unittest.TestCase):
         self.assertNotIn("secret", dumps(payload))
         self.assertNotIn("top-secret", dumps(payload))
 
+    def test_genomics_findings_show_genotype_but_not_service_secret(self):
+        upstream = {"total": 1, "items": [{
+            "source": "ClinVar", "title": "Example condition", "category": "clinical",
+            "genotype_display": "A/G", "genotype": "0/1", "effect_allele": "G",
+            "effect_allele_status": "present", "rsid": "rs123", "url": "https://example.test",
+            "payload_sha256": "private-internal-field",
+        }]}
+        response = MagicMock(); response.read.return_value = dumps(upstream).encode(); response.__enter__.return_value = response
+        with patch.object(clinical, "GENOMICS_MONITOR_URL", "http://genomics"), patch.object(clinical, "GENOMICS_API_TOKEN", "top-secret"), patch("app.urllib.request.urlopen", return_value=response) as urlopen:
+            payload = clinical.genomics_findings_payload("clinical", 20, 0, "rs123")
+        self.assertEqual(payload["items"][0]["genotype_display"], "A/G")
+        self.assertNotIn("genotype\"", dumps(payload))
+        self.assertNotIn("payload_sha256", dumps(payload))
+        self.assertNotIn("top-secret", dumps(payload))
+        self.assertIn("category=clinical", urlopen.call_args.args[0].full_url)
+
     def test_overview_uses_retained_capture_time(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "records.sqlite3"

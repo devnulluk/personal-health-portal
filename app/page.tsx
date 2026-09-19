@@ -17,6 +17,8 @@ type WearableOverview = { available: boolean; generated_at?: string; activity?: 
 type GenomicsOverview = { available: boolean; state: string; genome_build?: string | null; variant_count?: number; evidence_records?: number; matched_findings?: number; last_genome_import?: string | null; detail: string };
 type GenomicsSync = { source?: string | null; source_version?: string | null; completed_at?: string | null; status?: string | null; records_scanned?: number | null; matched_records?: number | null };
 type GenomicsReport = { available: boolean; state: string; generated_at?: string | null; indexed_calls?: number; evidence_matches?: number; by_source?: Record<string, number>; by_category?: Record<string, number>; by_evidence_level?: Record<string, number>; latest_syncs?: GenomicsSync[]; privacy?: string; detail?: string };
+type GenomicsFinding = { source?: string; source_record_id?: string; source_version?: string; title?: string; summary?: string; category?: string; evidence_level?: string; clinical_significance?: string | null; called_chrom?: string; called_pos?: number; called_ref?: string; called_alt?: string; rsid?: string | null; genotype_display?: string | null; phased?: number; filter_status?: string | null; quality?: number | null; effect_allele?: string | null; effect_allele_status?: string; trait_label?: string | null; population?: string | null; effect_size?: string | null; p_value?: string | null; url?: string; match_basis?: string };
+type GenomicsFindings = { available: boolean; state: string; items: GenomicsFinding[]; total: number; limit?: number; offset?: number; privacy?: string; detail?: string };
 
 const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
@@ -107,6 +109,11 @@ export default function Home() {
   const [wearables, setWearables] = useState<WearableOverview | null>(null);
   const [genomics, setGenomics] = useState<GenomicsOverview | null>(null);
   const [genomicsReport, setGenomicsReport] = useState<GenomicsReport | null>(null);
+  const [genomicsFindings, setGenomicsFindings] = useState<GenomicsFindings | null>(null);
+  const [findingCategory, setFindingCategory] = useState('clinical');
+  const [findingOffset, setFindingOffset] = useState(0);
+  const [findingSearch, setFindingSearch] = useState('');
+  const [appliedFindingSearch, setAppliedFindingSearch] = useState('');
   const [observationKind, setObservationKind] = useState<'laboratory' | 'metric'>('laboratory');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
@@ -188,6 +195,19 @@ export default function Home() {
     };
     void load();
   }, []);
+
+  useEffect(() => {
+    const loadFindings = async () => {
+      setGenomicsFindings(null);
+      try {
+        const parameters = new URLSearchParams({ category: findingCategory, limit: '20', offset: String(findingOffset) });
+        if (appliedFindingSearch) parameters.set('q', appliedFindingSearch);
+        const response = await fetch(`/api/clinical/overview/genomics/findings?${parameters}`);
+        if (response.ok) setGenomicsFindings(await response.json() as GenomicsFindings);
+      } catch { /* The panel retains an explicit unavailable state. */ }
+    };
+    void loadFindings();
+  }, [findingCategory, findingOffset, appliedFindingSearch]);
 
   useEffect(() => {
     if (!detailsOpen) return;
@@ -287,7 +307,21 @@ export default function Home() {
         </div>
         <div className="genomicsProgress"><div><span className="progressTick">✓</span><p><strong>Genome indexed</strong><small>{(genomicsReport.indexed_calls ?? 0).toLocaleString('en-GB')} calls on {genomics?.genome_build ?? 'the recorded reference build'}</small></p></div>{(genomicsReport.latest_syncs ?? []).filter((sync, index, items) => items.findIndex((other) => other.source === sync.source && other.status === 'complete') === index).slice(0,2).map((sync) => <div key={`${sync.source}-${sync.completed_at}`}><span className={sync.status === 'complete' ? 'progressTick' : 'progressMark'}>{sync.status === 'complete' ? '✓' : '!'}</span><p><strong>{sync.source} {sync.status}</strong><small>{sync.source_version ? `Release ${sync.source_version}` : 'Release version unavailable'}{sync.completed_at ? ` · ${new Date(sync.completed_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}` : ''}</small></p></div>)}</div>
         <p className="genomicsCaveat"><strong>What this means:</strong> these are evidence matches, not diagnoses. Research associations may be interesting without being clinically actionable. Any important clinical result needs suitable confirmation and professional interpretation.</p>
-        <small className="genomicsPrivacy">{genomicsReport.privacy}</small>
+        <div className="findingExplorer">
+          <div className="findingHeading"><div><p className="eyebrow">Individual findings</p><h3>Why you matched</h3><p>Your called alleles are shown beside the allele named by the evidence. Start with curated clinical evidence; research findings are broader and less certain.</p></div><form onSubmit={(event) => { event.preventDefault(); setFindingOffset(0); setAppliedFindingSearch(findingSearch.trim()); }}><label htmlFor="finding-search">Find a trait or SNP</label><div><input id="finding-search" value={findingSearch} onChange={(event) => setFindingSearch(event.target.value)} placeholder="e.g. rs429358 or eye colour" /><button type="submit">Search</button></div></form></div>
+          <div className="findingTabs" role="group" aria-label="Finding tier">{[['clinical','Clinical'],['health','Health'],['uncertain','Uncertain'],['research','Research']].map(([value,label]) => <button key={value} className={findingCategory === value ? 'active' : ''} onClick={() => { setFindingCategory(value); setFindingOffset(0); }}>{label}<span>{genomicsReport.by_category?.[value]?.toLocaleString('en-GB') ?? '0'}</span></button>)}</div>
+          {!genomicsFindings ? <div className="findingEmpty">Loading allele-level findings…</div> : genomicsFindings.available && genomicsFindings.items.length ? <>
+            <div className="findingList">{genomicsFindings.items.map((finding, index) => <article className="findingCard" key={`${finding.source}-${finding.source_record_id}-${index}`}>
+              <div className="findingCardTop"><div><span className={`findingTier tier-${finding.category}`}>{finding.category}</span><h4>{finding.trait_label || finding.title || 'Evidence finding'}</h4></div><div className="genotypeCall"><span>Your genotype</span><strong>{finding.genotype_display || 'No call'}</strong><small>{finding.phased ? 'Phased call' : 'Unphased call'}</small></div></div>
+              <div className="matchExplanation"><strong>{finding.effect_allele_status === 'present' ? `Matched allele ${finding.effect_allele ?? 'not specified'} is present` : 'Review allele match'}</strong><span>{finding.rsid || `chr${finding.called_chrom}:${finding.called_pos}`} · reference {finding.called_ref ?? '—'} · alternate {finding.called_alt ?? '—'}</span></div>
+              <p>{finding.summary || finding.title}</p>
+              <dl><div><dt>Evidence</dt><dd>{finding.evidence_level?.replaceAll('_',' ') || 'Not stated'}</dd></div>{finding.clinical_significance && <div><dt>Classification</dt><dd>{finding.clinical_significance.replaceAll('_',' ')}</dd></div>}{finding.effect_size && <div><dt>Reported effect</dt><dd>{finding.effect_size}</dd></div>}{finding.p_value && <div><dt>Study p-value</dt><dd>{finding.p_value}</dd></div>}<div><dt>Why matched</dt><dd>{finding.match_basis === 'rsid' ? 'Same rsID in your call set' : finding.match_basis === 'verified_import_match' ? 'Imported association and called effect allele' : 'Exact locus and alleles'}</dd></div></dl>
+              <div className="findingSource"><span>{finding.source}{finding.source_version ? ` · ${finding.source_version}` : ''}</span>{finding.url && <a href={finding.url} target="_blank" rel="noreferrer">Open evidence ↗</a>}</div>
+            </article>)}</div>
+            <div className="findingPagination"><span>Showing {findingOffset + 1}–{Math.min(findingOffset + genomicsFindings.items.length, genomicsFindings.total)} of {genomicsFindings.total.toLocaleString('en-GB')}</span><div><button disabled={findingOffset === 0} onClick={() => setFindingOffset(Math.max(0, findingOffset - 20))}>Previous</button><button disabled={findingOffset + 20 >= genomicsFindings.total} onClick={() => setFindingOffset(findingOffset + 20)}>Next</button></div></div>
+          </> : <div className="findingEmpty">{genomicsFindings.detail || (appliedFindingSearch ? 'No findings match that search in this tier.' : 'No findings are recorded in this tier.')}</div>}
+          <small className="genomicsPrivacy">{genomicsFindings?.privacy ?? 'Variant details remain inside this private portal.'}</small>
+        </div>
       </> : <div className="genomicsUnavailable">{genomicsReport?.detail ?? 'The readable evidence summary is loading from the private service.'}</div>}
     </section>
     <section className="observations panel" id="observations" aria-labelledby="observations-title">
