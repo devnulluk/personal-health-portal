@@ -71,6 +71,23 @@ class SourceOverviewTests(unittest.TestCase):
         with patch.object(clinical, "GENOMICS_MONITOR_URL", ""), patch.object(clinical, "GENOMICS_API_TOKEN", ""):
             self.assertEqual(clinical.genomics_overview_payload()["state"], "not_linked")
 
+    def test_genomics_report_is_aggregate_and_sanitised(self):
+        upstream = {
+            "generated_at": "2026-09-19T00:55:11Z", "indexed_calls": 100, "evidence_matches": 12,
+            "by_source": {"ClinVar": 5, "GWAS Catalog": 7}, "by_category": {"clinical": 1, "research": 7},
+            "by_evidence_level": {"guideline": 1, "single_study": 7},
+            "latest_syncs": [{"source": "ClinVar", "source_version": "2026-09-13", "completed_at": "2026-09-18T18:00:00Z", "status": "complete", "records_scanned": 900, "matched_records": 5, "secret": "no"}],
+            "by_clinical_significance": {"Pathogenic": 1}, "genotypes": ["A/G"],
+        }
+        response = MagicMock(); response.read.return_value = dumps(upstream).encode(); response.__enter__.return_value = response
+        with patch.object(clinical, "GENOMICS_MONITOR_URL", "http://genomics"), patch.object(clinical, "GENOMICS_API_TOKEN", "top-secret"), patch("app.urllib.request.urlopen", return_value=response):
+            payload = clinical.genomics_report_payload()
+        self.assertEqual(payload["state"], "complete")
+        self.assertEqual(payload["by_source"]["ClinVar"], 5)
+        self.assertNotIn("genotypes", payload)
+        self.assertNotIn("secret", dumps(payload))
+        self.assertNotIn("top-secret", dumps(payload))
+
     def test_overview_uses_retained_capture_time(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "records.sqlite3"

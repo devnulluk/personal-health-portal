@@ -188,6 +188,40 @@ def genomics_overview_payload() -> dict:
         return {"available": False, "state": "unavailable", "detail": "The private genome index is temporarily unavailable"}
 
 
+def genomics_report_payload() -> dict:
+    """Return aggregate interpretation progress without exposing variants or genotypes."""
+    if not (GENOMICS_MONITOR_URL and GENOMICS_API_TOKEN):
+        return {"available": False, "state": "not_linked", "detail": "The private genomics report is not linked yet"}
+    request = urllib.request.Request(
+        f"{GENOMICS_MONITOR_URL.rstrip('/')}/reports/initial",
+        headers={"Authorization": f"Bearer {GENOMICS_API_TOKEN}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = loads(response.read(2 * 1024 * 1024))
+        if not isinstance(payload, dict):
+            raise ValueError("Unexpected response")
+        syncs = []
+        for item in payload.get("latest_syncs", []):
+            if not isinstance(item, dict):
+                continue
+            syncs.append({key: item.get(key) for key in ("source", "source_version", "completed_at", "status", "records_scanned", "matched_records")})
+        return {
+            "available": True,
+            "state": "complete" if payload.get("indexed_calls") else "building",
+            "generated_at": payload.get("generated_at"),
+            "indexed_calls": int(payload.get("indexed_calls") or 0),
+            "evidence_matches": int(payload.get("evidence_matches") or 0),
+            "by_source": payload.get("by_source") if isinstance(payload.get("by_source"), dict) else {},
+            "by_category": payload.get("by_category") if isinstance(payload.get("by_category"), dict) else {},
+            "by_evidence_level": payload.get("by_evidence_level") if isinstance(payload.get("by_evidence_level"), dict) else {},
+            "latest_syncs": syncs[:8],
+            "privacy": "Aggregate counts only; no genotypes or variant-level findings are exposed to the browser",
+        }
+    except (OSError, ValueError, TypeError, urllib.error.HTTPError):
+        return {"available": False, "state": "unavailable", "detail": "The private genomics report is temporarily unavailable"}
+
+
 @app.get("/health")
 def health() -> dict:
     if not DATABASE.exists():
@@ -261,6 +295,11 @@ def wearable_overview() -> dict:
 @app.get("/overview/genomics")
 def genomics_overview() -> dict:
     return genomics_overview_payload()
+
+
+@app.get("/overview/genomics/report")
+def genomics_report() -> dict:
+    return genomics_report_payload()
 
 
 def _labelled_value(text: str, label: str) -> str | None:

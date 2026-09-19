@@ -15,6 +15,8 @@ type WearableDay = { date: string; steps?: number | null; active_minutes?: numbe
 type WearableBody = { averaged?: { resting_heart_rate_bpm?: number | null; avg_hrv_sdnn_ms?: number | null; avg_hrv_rmssd_ms?: number | null } };
 type WearableOverview = { available: boolean; generated_at?: string; activity?: WearableDay[]; sleep?: WearableDay[]; recovery?: WearableDay[]; body?: WearableBody | null; open_wearables_url: string; detail?: string };
 type GenomicsOverview = { available: boolean; state: string; genome_build?: string | null; variant_count?: number; evidence_records?: number; matched_findings?: number; last_genome_import?: string | null; detail: string };
+type GenomicsSync = { source?: string | null; source_version?: string | null; completed_at?: string | null; status?: string | null; records_scanned?: number | null; matched_records?: number | null };
+type GenomicsReport = { available: boolean; state: string; generated_at?: string | null; indexed_calls?: number; evidence_matches?: number; by_source?: Record<string, number>; by_category?: Record<string, number>; by_evidence_level?: Record<string, number>; latest_syncs?: GenomicsSync[]; privacy?: string; detail?: string };
 
 const representativeRecords: RecordItem[] = [
   { id: 1, date: '28 Aug 2026', type: 'Tests', title: 'Example laboratory panel', summary: 'Detailed result captured and linked to its index entry.', source: 'SystmOnline · detailed result', confidence: 99, review: 'Confirm index linkage', fhir: 'Observation · final · UKCore-Observation' },
@@ -104,6 +106,7 @@ export default function Home() {
   const [observations, setObservations] = useState<ObservationGroup[]>([]);
   const [wearables, setWearables] = useState<WearableOverview | null>(null);
   const [genomics, setGenomics] = useState<GenomicsOverview | null>(null);
+  const [genomicsReport, setGenomicsReport] = useState<GenomicsReport | null>(null);
   const [observationKind, setObservationKind] = useState<'laboratory' | 'metric'>('laboratory');
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
@@ -133,14 +136,16 @@ export default function Home() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse, wearableResponse, genomicsResponse] = await Promise.all([
+        const [summaryResponse, eventsResponse, sourcesResponse, observationsResponse, wearableResponse, genomicsResponse, genomicsReportResponse] = await Promise.all([
           fetch('/api/clinical/summary'),
           fetch('/api/clinical/events?limit=1000'),
           fetch('/api/clinical/overview/sources'),
           fetch('/api/clinical/observations'),
           fetch('/api/clinical/overview/wearables'),
           fetch('/api/clinical/overview/genomics'),
+          fetch('/api/clinical/overview/genomics/report'),
         ]);
+        if (genomicsReportResponse.ok) setGenomicsReport(await genomicsReportResponse.json() as GenomicsReport);
         if (genomicsResponse.ok) setGenomics(await genomicsResponse.json() as GenomicsOverview);
         if (wearableResponse.ok) setWearables(await wearableResponse.json() as WearableOverview);
         if (observationsResponse.ok) setObservations((await observationsResponse.json() as { groups: ObservationGroup[] }).groups);
@@ -232,7 +237,7 @@ export default function Home() {
       <a className="brand" href="#top" aria-label="Personal Health home"><span className="brandMark">PH</span><span>Personal Health Data</span></a>
       <span className="privacy"><span className="privacyDot" />Private service</span>
     </div></header>
-    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#today">Today</a><a href="#data-sources">Sources</a><a href="#observations">Labs & metrics</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
+    <div className="serviceBar"><nav className="nav" aria-label="Portal sections"><a href="#today">Today</a><a href="#data-sources">Sources</a><a href="#genomics">Genetics</a><a href="#observations">Labs & metrics</a><a href="#records">GP records</a><a href="#sources">Data quality</a></nav></div>
     <main>
     <div className="independentBanner"><strong>Independent personal project</strong><span>This service is not affiliated with GOV.UK, the NHS or any government department.</span></div>
     <section className="hero compactHero" id="top">
@@ -267,14 +272,23 @@ export default function Home() {
         return <li key={source.source_key}><span className={`sourceStatusMark state-${source.state}`} aria-hidden="true" /><div><strong>{source.label}</strong><span>{source.detail}</span>{source.current_event_count !== undefined && <small>{source.current_event_count} current events · {source.capture_count} retained captures</small>}</div><div className="sourceStatusState"><strong>{stateLabel}</strong>{timestamp ? <time dateTime={timestamp}>{new Date(timestamp).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</time> : <span>No verified timestamp</span>}</div></li>;
       })}</ul> : <div className="sourceStatusEmpty" role="status">{sourcesLoaded ? 'Source overview is temporarily unavailable. The timeline remains available below.' : 'Source evidence is loading from the private service.'}</div>}
     </section>
-    <section className="genomicsOverview panel" id="genomics" aria-labelledby="genomics-title">
-      <div className="genomicsCopy"><p className="eyebrow">Genomics</p><h2 id="genomics-title">Your genome, ready for new evidence</h2><p>{genomics?.detail ?? 'Checking the private genome index…'}</p></div>
-      <div className="genomicsStats">
+    <section className="genomicsReport panel" id="genomics" aria-labelledby="genomics-title">
+      <div className="genomicsReportHeading"><div><p className="eyebrow">Genomics report</p><h2 id="genomics-title">Your genome, checked against current evidence</h2><p>{genomics?.detail ?? 'Checking the private genome index…'}</p></div><div className={`genomicsState state-${genomicsReport?.state ?? genomics?.state ?? 'checking'}`}><strong>{genomicsReport?.state === 'complete' ? 'Initial baseline complete' : genomics?.state === 'indexed' ? 'Genome indexed' : genomics?.state === 'unavailable' ? 'Temporarily unavailable' : 'Checking progress'}</strong><span>{genomicsReport?.generated_at ? `Report generated ${new Date(genomicsReport.generated_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Awaiting a verified report timestamp'}</span></div></div>
+      <div className="genomicsStats reportStats">
         <article><span>Reference build</span><strong>{genomics?.genome_build ?? '—'}</strong></article>
-        <article><span>Indexed calls</span><strong>{genomics?.available ? (genomics.variant_count ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
-        <article><span>Evidence matches</span><strong>{genomics?.available ? (genomics.matched_findings ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
+        <article><span>Indexed calls</span><strong>{genomicsReport?.available ? (genomicsReport.indexed_calls ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
+        <article><span>Evidence matches</span><strong>{genomicsReport?.available ? (genomicsReport.evidence_matches ?? 0).toLocaleString('en-GB') : '—'}</strong></article>
       </div>
-      <div className={`genomicsState state-${genomics?.state ?? 'checking'}`}><strong>{genomics?.state === 'indexed' ? 'Genome indexed' : genomics?.state === 'awaiting_import' ? 'Import in progress' : genomics?.state === 'unavailable' ? 'Temporarily unavailable' : 'Connecting'}</strong><span>{genomics?.last_genome_import ? `Last indexed ${new Date(genomics.last_genome_import).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : 'No completed import reported yet'}</span></div>
+      {genomicsReport?.available ? <>
+        <div className="genomicsBreakdown">
+          <article><h3>Evidence sources</h3>{Object.entries(genomicsReport.by_source ?? {}).map(([label, count]) => <div className="genomicsRow" key={label}><span>{label}</span><strong>{count.toLocaleString('en-GB')}</strong></div>)}</article>
+          <article><h3>Interpretation tiers</h3>{Object.entries(genomicsReport.by_category ?? {}).sort((a,b) => b[1] - a[1]).map(([label, count]) => <div className="genomicsRow" key={label}><span>{label.replaceAll('_', ' ')}</span><strong>{count.toLocaleString('en-GB')}</strong></div>)}</article>
+          <article><h3>Strength of evidence</h3>{Object.entries(genomicsReport.by_evidence_level ?? {}).sort((a,b) => b[1] - a[1]).map(([label, count]) => <div className="genomicsRow" key={label}><span>{label.replaceAll('_', ' ')}</span><strong>{count.toLocaleString('en-GB')}</strong></div>)}</article>
+        </div>
+        <div className="genomicsProgress"><div><span className="progressTick">✓</span><p><strong>Genome indexed</strong><small>{(genomicsReport.indexed_calls ?? 0).toLocaleString('en-GB')} calls on {genomics?.genome_build ?? 'the recorded reference build'}</small></p></div>{(genomicsReport.latest_syncs ?? []).filter((sync, index, items) => items.findIndex((other) => other.source === sync.source && other.status === 'complete') === index).slice(0,2).map((sync) => <div key={`${sync.source}-${sync.completed_at}`}><span className={sync.status === 'complete' ? 'progressTick' : 'progressMark'}>{sync.status === 'complete' ? '✓' : '!'}</span><p><strong>{sync.source} {sync.status}</strong><small>{sync.source_version ? `Release ${sync.source_version}` : 'Release version unavailable'}{sync.completed_at ? ` · ${new Date(sync.completed_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}` : ''}</small></p></div>)}</div>
+        <p className="genomicsCaveat"><strong>What this means:</strong> these are evidence matches, not diagnoses. Research associations may be interesting without being clinically actionable. Any important clinical result needs suitable confirmation and professional interpretation.</p>
+        <small className="genomicsPrivacy">{genomicsReport.privacy}</small>
+      </> : <div className="genomicsUnavailable">{genomicsReport?.detail ?? 'The readable evidence summary is loading from the private service.'}</div>}
     </section>
     <section className="observations panel" id="observations" aria-labelledby="observations-title">
       <div className="observationsHeading"><div><p className="eyebrow">Longitudinal observations</p><h2 id="observations-title">Labs and personal metrics</h2><p>Each card keeps readings together by test or measurement, with history, units, range context and source evidence.</p></div><div className="observationTabs" role="group" aria-label="Observation type"><button className={observationKind === 'laboratory' ? 'active' : ''} onClick={() => setObservationKind('laboratory')}>Laboratory tests</button><button className={observationKind === 'metric' ? 'active' : ''} onClick={() => setObservationKind('metric')}>Body metrics</button></div></div>
