@@ -46,7 +46,7 @@ if not API_TOKEN:
 ALLOWED_HOSTS = [
     host.strip() for host in os.environ.get(
         "MCP_ALLOWED_HOSTS",
-        "127.0.0.1:*,localhost:*,10.30.30.2:*,health.newland-brown.com",
+        "127.0.0.1:*,localhost:*,10.30.30.2,10.30.30.2:*,health.newland-brown.com",
     ).split(",") if host.strip()
 ]
 
