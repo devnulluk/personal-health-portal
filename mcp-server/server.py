@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 
@@ -41,6 +42,13 @@ def _read_secret() -> str:
 API_TOKEN = _read_secret()
 if not API_TOKEN:
     raise RuntimeError("Set MCP_API_TOKEN or MCP_API_TOKEN_FILE before starting the MCP service")
+
+ALLOWED_HOSTS = [
+    host.strip() for host in os.environ.get(
+        "MCP_ALLOWED_HOSTS",
+        "127.0.0.1:*,localhost:*,10.30.30.2:*,health.newland-brown.com",
+    ).split(",") if host.strip()
+]
 
 
 def _audit(tool: str, result_count: int | None = None, **parameters: Any) -> None:
@@ -205,4 +213,8 @@ class BearerTokenMiddleware:
 
 app = BearerTokenMiddleware(mcp.streamable_http_app(
     streamable_http_path="/mcp", stateless_http=True, json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=ALLOWED_HOSTS,
+    ),
 ))

@@ -25,6 +25,9 @@ class HealthToolsTest(unittest.TestCase):
         self.assertEqual(server._query("  sleep  "), "sleep")
         self.assertEqual(len(server._query("x" * 500)), 120)
 
+    def test_mobius_gateway_is_explicitly_allowed(self):
+        self.assertIn("10.30.30.2:*", server.ALLOWED_HOSTS)
+
     @patch("server.urllib.request.urlopen")
     def test_api_get_builds_internal_request(self, urlopen):
         urlopen.return_value = FakeResponse({"items": []})

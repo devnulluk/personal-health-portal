@@ -44,6 +44,8 @@ gateway /mcp ──► health-mcp ──► clinical-api ──► retained sour
 
 The MCP container has no database volume and receives none of the downstream service
 credentials. The clinical API remains the sole policy and redaction boundary.
+DNS-rebinding protection remains enabled; `MCP_ALLOWED_HOSTS` contains an explicit,
+comma-separated allowlist for the Mobius gateway and any approved portal hostname.
 
 The dedicated bearer token is the private single-user deployment's bootstrap authentication.
 Before exposing the MCP endpoint beyond Cloudflare Access/the trusted network, replace it
