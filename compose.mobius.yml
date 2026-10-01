@@ -8,6 +8,8 @@ services:
         condition: service_started
       clinical-api:
         condition: service_healthy
+      health-mcp:
+        condition: service_healthy
     ports:
       - "31020:80"
     networks: [health-portal]
@@ -36,6 +38,24 @@ services:
       GENOMICS_API_TOKEN: ${GENOMICS_API_TOKEN:-}
     volumes:
       - clinical-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [health-portal]
+
+  health-mcp:
+    image: ghcr.io/devnulluk/personal-health-portal-mcp:latest
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      CLINICAL_API_URL: http://clinical-api:8000
+      MCP_API_TOKEN: ${MCP_API_TOKEN:?Set a separate long random MCP token}
+      MCP_API_TOKEN_FILE: ${MCP_API_TOKEN_FILE:-}
+    depends_on:
+      clinical-api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s

@@ -29,6 +29,9 @@ jobs:
           - name: gateway
             context: .
             dockerfile: gateway/Dockerfile
+          - name: mcp
+            context: mcp-server
+            dockerfile: mcp-server/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

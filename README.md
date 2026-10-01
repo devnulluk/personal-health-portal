@@ -18,11 +18,18 @@ The first evidence-first [timeline explorer](docs/TIMELINE-EXPLORER.md) is live.
 
 ## Mobius deployment
 
-`compose.mobius.yml` runs three containers:
+`compose.mobius.yml` runs four containers:
 
 - `portal`: the browser interface;
 - `clinical-api`: a private read API and authenticated atomic database-import endpoint;
+- `health-mcp`: a token-protected, read-only MCP façade over the internal clinical API;
 - `gateway`: the only published container, routing `/api/clinical/` to the API and all other requests to the portal.
+
+The MCP endpoint is `/mcp`. It offers bounded tools for source status, clinical search,
+labs and metrics, wearable summaries and evidence-linked genomic findings. It never opens
+the underlying databases and does not expose write tools. Set a dedicated `MCP_API_TOKEN`
+in Portainer and send it as `Authorization: Bearer …`; do not reuse an import or genomics
+service credential. See [docs/MCP-SERVICE.md](docs/MCP-SERVICE.md).
 
 The clinical database is held in the `personal-health-clinical-data` named volume. Recreating or updating containers does not replace that volume. Published images use `pull_policy: always`, so a Portainer redeploy retrieves the current tested image instead of silently retaining an older `latest` tag.
 
